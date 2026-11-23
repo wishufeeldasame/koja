@@ -38,8 +38,8 @@
 ## 기술스택
 
 - Java 25 LTS, JavaFX, Gradle, jpackage
-- 내장 바이너리: ffmpeg(LGPL 빌드), llama.cpp `llama-server`(Win CUDA / Mac Metal)
-- 로컬 STT·화자 구분: **M0 PoC로 결정 전**. 후보는 sherpa-onnx(Java) 또는 Python 워커
+- 내장 바이너리: ffmpeg(LGPL 빌드), llama.cpp `llama-server`, whisper.cpp `whisper-server`(둘 다 Win CUDA / Mac Metal)
+- 로컬 STT: whisper-server(large-v3-turbo), 2회 방식(D-035, D-036). VAD·화자 구분: sherpa-onnx Java(CPU)
 - Google Sheets API v4 + OAuth Desktop(루프백 + PKCE), 스코프 `drive.file`
 
 새 의존성은 표준 라이브러리나 이미 있는 의존성으로 안 될 때만 추가하고, 이유를 커밋 메시지에 쓴다.
@@ -64,6 +64,7 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   build.gradle.kts
   src/main/java/module-info.java
   src/main/java/koja/ui    화면 (진입점 KojaApp)
+poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사용법 poc/README.md, 윈도우 측정 poc/WINDOWS.md
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore)
   src/test/java/           JUnit 테스트
 ```
@@ -77,7 +78,6 @@ app/src/main/java/koja/
   media    ffmpeg 호출
   runtime  내장 바이너리·모델 관리
   export   Google Sheets
-poc/            M0 비교 실험 스크립트 (Python, 앱과 분리)
 eval/           평가 스크립트와 결과 (results/ 아래 날짜별)
 samples/        샘플 영상·정답 시트, README.md(외부 전송 허용 표) (커밋 금지)
 ```

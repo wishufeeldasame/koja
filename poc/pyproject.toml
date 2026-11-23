@@ -1,0 +1,21 @@
+[project]
+name = "koja-poc"
+version = "0.0.0"
+description = "M0 로컬 STT·화자 구분 비교 (앱과 분리)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "openpyxl",
+  "numpy",
+  "soundfile",
+  "sherpa-onnx",
+]
+
+[project.optional-dependencies]
+# Qwen3-ASR·pyannote 비교용(torch 포함, 수 GB). 결정된 경로(whisper.cpp + sherpa-onnx)만 잴 때는 필요 없다.
+torch = [
+  "qwen-asr",
+  "pyannote.audio",
+]
+
+[tool.uv]
+package = false

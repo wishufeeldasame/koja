@@ -36,8 +36,8 @@ AI 단계(음성 인식, 화자 구분, 구조화·번역, 화면 분석)마다 
 ```
 JavaFX 앱
  ├─ 가져오기  ffmpeg → 오디오(16kHz) + 검수용 MP4
- ├─ STT       로컬 엔진 (M0에서 결정) / 외부 API
- ├─ 화자 구분  로컬 엔진 (M0에서 결정) / 외부 API
+ ├─ STT       whisper.cpp whisper-server (내장) / 외부 API
+ ├─ 화자 구분  sherpa-onnx (앱 안, CPU) / 외부 API
  ├─ 구조화·번역 llama.cpp llama-server (내장) / 외부 LLM
  ├─ 검수 화면  영상 + 편집 가능한 표
  └─ 내보내기   Google Sheets API (사용자 구글 계정 OAuth)
@@ -50,7 +50,7 @@ JavaFX 앱
 ## 기술스택
 
 - Java 25 LTS · JavaFX · Gradle · jpackage (.msi / .dmg)
-- ffmpeg, llama.cpp `llama-server` 내장
+- ffmpeg, llama.cpp `llama-server`, whisper.cpp `whisper-server` 내장, sherpa-onnx(VAD·화자 구분)
 - Google Sheets API v4, OAuth Desktop (`drive.file` 스코프)
 - 빌드: GitHub Actions에서 Windows·macOS 각각 빌드
 
@@ -74,7 +74,7 @@ JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| M0 | 로컬 STT·화자 구분·번역 모델 비교 PoC | 샘플 준비됨, 시작 전 |
+| M0 | 로컬 STT·화자 구분·번역 모델 비교 PoC | STT·화자 구분 결정(D-035), 번역 비교·윈도우 측정 남음 |
 | M1 | 앱 뼈대: 가져오기, 검수 화면, 프로젝트 저장, 설치파일 CI | 진행 중 |
 | M2 | 로컬 STT·화자 구분 연결 | 예정 |
 | M3 | llama-server 관리, 구조화·번역 | 예정 |

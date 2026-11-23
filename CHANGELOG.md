@@ -15,8 +15,11 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 빌드 CI(.github/workflows/build.yml): 맥·윈도우에서 `./gradlew build`
 - Project 모델과 project.json 저장/로드(`koja.core`), 단위 테스트(JUnit). JSON은 Jackson 3(D-027)
 - 검수 화면(더미 데이터): 영상 + 행 표, 행 클릭 → 영상 이동, 한국어·일본어 편집 후 저장, 파일 메뉴(열기·더미 프로젝트 만들기·저장). 재생 영상 규칙 D-028, `javafx-media` 추가
+- M0 PoC 스크립트(`poc/`, Python + uv): WAV 추출, 정답 시트 파싱, 공통 VAD, STT 5종·화자 구분 3종 실행, 2회 방식 병합, 정답 시트 비교 평가, 윈도우 측정 안내(poc/WINDOWS.md)
+- 결정 D-035(로컬 STT는 whisper.cpp 내장, VAD·화자 구분은 sherpa-onnx), D-036(STT 2회 방식, 행 시각은 단어 시간). 설계 7.1에 PoC 수치 요약
 
 ### 변경
+- 설계 4단계를 "ja 구간 일본어 재전사"에서 "비한국어 구간 한국어 재전사"로, 행 `startMs`를 첫 단어 시간으로 바꿈(D-036). D-006(보류)을 D-035로 대체
 - 라이선스를 두지 않기로 함(개인용, D-029). D-021(보류)을 대체
 - 잡담 구간은 행으로 만들지 않고 무시 목록에 넣도록 절대 규칙 1을 고침(D-030). spec-reviewer 검증 문구도 같이 고침
 - 인터뷰 영상은 질문자·답변자 발언만 행으로 남기고 통역·잡담은 무시(D-031, D-030 대체)
