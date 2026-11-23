@@ -1,0 +1,45 @@
+# 샘플 영상·정답 시트 (커밋 금지)
+samples/
+
+# 평가 중 생성되는 대용량 산출물
+eval/work/
+
+# 모델·내장 바이너리 (CI/첫 실행 때 받음)
+models/
+*.gguf
+*.onnx
+
+# Gradle / Java
+.gradle/
+build/
+out/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Python (poc/)
+.venv/
+__pycache__/
+
+# 비밀
+*.env
+.env*
+!.env.example
+client_secret*.json
+credentials*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude 로컬 설정
+.claude/settings.local.json
+
+# 비공개 문서 (로컬 전용: 요구사항 원문, 내부 요청서 등)
+docs/private/
+
+# 평가 결과 (샘플 전사 내용이 들어가므로 공개 저장소에 올리지 않음)
+eval/results/

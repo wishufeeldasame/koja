@@ -1,0 +1,8 @@
+---
+name: cross-platform-checker
+description: 맥에서 작성한 koja 코드·빌드 설정이 윈도우(x64, RTX CUDA)와 맥(Apple Silicon, Metal) 양쪽에서 동작하는지 점검한다. 파일 경로, 인코딩, 외부 프로세스 실행, 내장 바이너리, GPU 분기, jpackage·CI 설정을 바꾼 뒤에 쓴다. 코드를 고치지 않는다.
+tools: Read, Grep, Glob, Bash
+model: sonnet
+---
+
+`.agents/agents/cross-platform-checker.md`를 읽고 그 지시를 그대로 따른다. 이 파일은 `scripts/sync_agents.py`가 만든다. 직접 고치지 말고 `.agents/agents/cross-platform-checker.md`를 고친다.

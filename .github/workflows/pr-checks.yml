@@ -1,0 +1,53 @@
+# 저장소 규칙 검사 (AGENTS.md, docs/결정기록.md D-022)
+name: PR 검사
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repo-rules:
+    name: 저장소 규칙
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 에이전트 생성 파일 동기화
+        run: python3 scripts/sync_agents.py --check
+
+      - name: 비공개 경로 커밋 금지
+        run: |
+          if git ls-files | grep -E '^(docs/private|samples|eval/results)/'; then
+            echo "::error::비공개 경로의 파일이 커밋돼 있습니다 (AGENTS.md 절대 규칙 3)"
+            exit 1
+          fi
+
+      - name: PR 제목 형식
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|refactor|test|build|ci|chore|perf|style|revert)(\([^)]+\))?!?: .+'
+          if ! printf '%s' "$TITLE" | grep -qE "$pattern"; then
+            echo "::error::PR 제목은 Conventional Commits 형식이어야 합니다. 예: 'docs: 결정 기록 추가'"
+            exit 1
+          fi
+
+      - name: CHANGELOG 갱신
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ! git diff --name-only "$BASE" "$HEAD" | grep -qx 'CHANGELOG.md'; then
+            echo "::error::CHANGELOG.md의 Unreleased에 이 PR의 변경을 추가하세요. 필요 없는 PR이면 skip-changelog 라벨을 붙이세요."
+            exit 1
+          fi
