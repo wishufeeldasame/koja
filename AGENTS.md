@@ -58,19 +58,23 @@ docs/           공개 문서 (설계, 결정 기록)
 .agents/agents/ 프로젝트 에이전트 원본
 .claude/ .codex/ .opencode/   도구별 에이전트 파일 (생성물)
 scripts/        저장소 관리 스크립트 (sync_agents.py)
-.github/        PR 양식
+.github/        PR 양식, CI (pr-checks.yml, build.yml)
+settings.gradle.kts, gradlew, gradle/   Gradle 빌드 (Kotlin DSL)
+app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
+  build.gradle.kts
+  src/main/java/module-info.java
+  src/main/java/koja/ui    화면 (진입점 KojaApp)
 ```
 
 M1 이후 생길 것:
 
 ```
-app/            JavaFX 앱
-  src/main/java/…/ui       화면
-  src/main/java/…/core     Project 모델, 파이프라인, 검증기
-  src/main/java/…/engine   Transcriber / Diarizer / LlmClient / FrameReader 와 구현
-  src/main/java/…/media    ffmpeg 호출
-  src/main/java/…/runtime  내장 바이너리·모델 관리
-  src/main/java/…/export   Google Sheets
+app/src/main/java/koja/
+  core     Project 모델, 파이프라인, 검증기
+  engine   Transcriber / Diarizer / LlmClient / FrameReader 와 구현
+  media    ffmpeg 호출
+  runtime  내장 바이너리·모델 관리
+  export   Google Sheets
 poc/            M0 비교 실험 스크립트 (Python, 앱과 분리)
 eval/           평가 스크립트와 결과 (results/ 아래 날짜별)
 samples/        샘플 영상·정답 시트, README.md(외부 전송 허용 표) (커밋 금지)
@@ -98,15 +102,14 @@ samples/        샘플 영상·정답 시트, README.md(외부 전송 허용 표
 
 ```bash
 python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본과 맞는지
-```
-
-M1에서 Gradle 프로젝트를 만들면 아래 명령을 채운다. 그 전까지는 없다.
-
-```bash
-./gradlew run        # (M1 예정) 앱 실행
-./gradlew test       # (M1 예정) 테스트
+./gradlew run        # 앱 실행
+./gradlew test       # 테스트
+./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
 ./gradlew jpackage   # (M1 예정) 현재 OS용 설치파일
 ```
+
+- 윈도우에서는 `gradlew.bat`을 쓴다.
+- JDK 25가 없어도 된다. Gradle 툴체인이 처음 빌드할 때 받아 `~/.gradle/jdks`에 둔다. Gradle을 실행할 JDK(17 이상)는 있어야 한다.
 
 - 새 로직(파서, 검증기, 시간 변환, 행 묶기)에는 작은 단위 테스트를 붙인다.
 - STT·번역 품질 변화는 `eval/` 평가로 확인하고 결과 파일을 남긴다.
