@@ -30,6 +30,15 @@ dependencies {
     for (module in listOf("base", "graphics", "controls")) {
         implementation("org.openjfx:javafx-$module:$javafxVersion:$javafxPlatform")
     }
+    implementation("tools.jackson.core:jackson-databind:3.3.0")
+
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 application {
