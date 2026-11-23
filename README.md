@@ -60,7 +60,7 @@ JavaFX 앱
 ./gradlew run
 ```
 
-JDK 17 이상이 있으면 된다. JDK 25는 Gradle이 받아 온다. 나머지 명령은 [AGENTS.md](AGENTS.md#빌드실행테스트).
+JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온다(인터넷 연결 필요). 나머지 명령은 [AGENTS.md](AGENTS.md#빌드실행테스트).
 
 작업 규칙: [AGENTS.md](AGENTS.md). Claude Code, Codex, OpenCode/oh-my-opencode, Antigravity 모두 이 파일을 읽는다.
 
