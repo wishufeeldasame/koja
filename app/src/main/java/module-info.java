@@ -1,5 +1,6 @@
 module koja {
     requires javafx.controls;
+    requires javafx.media;
     requires tools.jackson.databind;
 
     exports koja.ui to javafx.graphics;

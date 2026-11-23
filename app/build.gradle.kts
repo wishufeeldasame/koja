@@ -27,7 +27,7 @@ val javafxPlatform: String = run {
 }
 
 dependencies {
-    for (module in listOf("base", "graphics", "controls")) {
+    for (module in listOf("base", "graphics", "controls", "media")) {
         implementation("org.openjfx:javafx-$module:$javafxVersion:$javafxPlatform")
     }
     implementation("tools.jackson.core:jackson-databind:3.3.0")
