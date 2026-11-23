@@ -14,6 +14,14 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - Gradle 프로젝트(Kotlin DSL, wrapper 9.9.2)와 빈 JavaFX 창(`./gradlew run`). JavaFX는 모듈 경로로 실행(D-025)
 - 빌드 CI(.github/workflows/build.yml): 맥·윈도우에서 `./gradlew build`
 - Project 모델과 project.json 저장/로드(`koja.core`), 단위 테스트(JUnit). JSON은 Jackson 3(D-027)
+- 검수 화면(더미 데이터): 영상 + 행 표, 행 클릭 → 영상 이동, 한국어·일본어 편집 후 저장, 파일 메뉴(열기·더미 프로젝트 만들기·저장). 재생 영상 규칙 D-028, `javafx-media` 추가
 
 ### 변경
+- 라이선스를 두지 않기로 함(개인용, D-029). D-021(보류)을 대체
+- 잡담 구간은 행으로 만들지 않고 무시 목록에 넣도록 절대 규칙 1을 고침(D-030). spec-reviewer 검증 문구도 같이 고침
+- 인터뷰 영상은 질문자·답변자 발언만 행으로 남기고 통역·잡담은 무시(D-031, D-030 대체)
+- 목적을 편집용 초벌 기록으로 명시: 빠짐없음·시간 정확도 우선, 정제는 추천까지만(D-032). 설계 1·2장, README
+- 무시한 구간은 검수 화면에서 접어 두고 되살릴 수 있게(D-033, M3에서 구현)
+- 사용 범위를 팀 내부 배포에서 개인 사용으로 바꿈(D-034, D-001 대체)
+- .gitignore: samples/ 밖에 둔 영상·오디오 파일(mp4, mov, mkv, mxf, m4v, wav)도 제외
 - 브랜치 흐름: `develop`(기본)으로 작업 PR을 squash, 릴리스는 `develop` → `main` merge commit(D-026). CI가 `develop` 푸시에도 돈다

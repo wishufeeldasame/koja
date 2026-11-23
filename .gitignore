@@ -1,5 +1,12 @@
 # 샘플 영상·정답 시트 (커밋 금지)
 samples/
+# samples/ 밖에 둔 실제 영상·오디오도 막는다
+*.mp4
+*.mov
+*.mkv
+*.mxf
+*.m4v
+*.wav
 
 # 평가 중 생성되는 대용량 산출물
 eval/work/
