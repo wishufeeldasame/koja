@@ -15,4 +15,4 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 빌드 CI(.github/workflows/build.yml): 맥·윈도우에서 `./gradlew build`
 
 ### 변경
-- 브랜치 흐름: `develop`(기본)으로 작업 PR을 squash, 릴리스는 `develop` → `main` rebase(D-026). CI가 `develop` 푸시에도 돈다
+- 브랜치 흐름: `develop`(기본)으로 작업 PR을 squash, 릴리스는 `develop` → `main` merge commit(D-026). CI가 `develop` 푸시에도 돈다
