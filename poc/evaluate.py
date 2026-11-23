@@ -67,23 +67,40 @@ def speaker_of(seg, turns):
     return who
 
 
+def variants(segs):
+    """2회 방식 결과는 구간마다 후보가 둘이다. 이어 붙이면 한 발화에서 두 후보 글자를 함께 정렬하게 되므로
+    자동 언어 결과(1차)와, 2차 후보가 있는 구간만 바꾼 결과를 따로 만든다. 두 목록은 순서·시각이 같다."""
+    primary = [s for s in segs if not s.get("secondPass")]
+    second = {s["id"]: s for s in segs if s.get("secondPass")}
+    return [primary] + ([[second.get(s["id"], s) for s in primary]] if second else [])
+
+
 def evaluate(name, segs, turns):
     sheet = json.loads((work_dir("sheet") / f"{name}.json").read_text(encoding="utf-8"))
-    chars = stream(segs)
-    hchars = [c for c in chars if not HANGUL.match(c[0])]
+    vs = variants(segs)
+    segs = vs[0]
+    streams = []
+    for v in vs:
+        chars = stream(v)
+        streams.append((chars, [c for c in chars if not HANGUL.match(c[0])]))
     spk = [speaker_of(s, turns) for s in segs] if turns is not None else None
     lines, details = [r for r in sheet if "startMs" in r], []
     for r in lines:
         lo, hi = r["startMs"] - WIN, r["startMs"] + WIN
-        strict, ci = match(norm(r["ko"]), chars, lo, hi)
-        cov, ci_h = match(hangul(r["ko"]), hchars, lo, hi)
-        ci = ci if ci is not None else ci_h
+        best = None
+        for chars, hchars in streams:
+            strict, ci = match(norm(r["ko"]), chars, lo, hi)
+            cov, ci_h = match(hangul(r["ko"]), hchars, lo, hi)
+            # 시간·화자는 포함 판정에 쓴 한글 정렬 위치에서 가져온다
+            at = hchars[ci_h] if ci_h is not None else (chars[ci] if ci is not None else None)
+            if best is None or cov > best[0]:
+                best = (cov, strict, at)
+        cov, strict, at = best
         d = {"sheetRow": r["sheetRow"], "sheetMs": r["startMs"], "cover": round(cov, 3),
              "coverStrict": round(strict, 3), "hit": cov >= COVER}
-        if ci is not None:
-            k = chars[ci][2]
-            d |= {"wordMs": chars[ci][1], "segMs": segs[k]["startMs"], "seg": k,
-                  "speaker": spk[k] if spk else None}
+        if at is not None:
+            k = at[2]
+            d |= {"wordMs": at[1], "segMs": segs[k]["startMs"], "seg": k, "speaker": spk[k] if spk else None}
         details.append(d)
     hits = [d for d in details if d["hit"] and "wordMs" in d]
 
@@ -99,11 +116,15 @@ def evaluate(name, segs, turns):
            "meanCover": round(st.mean(d["cover"] for d in details), 3),
            "recallStrict": round(sum(d["coverStrict"] >= COVER for d in details) / len(lines), 3),
            "timeWord": terr("wordMs"), "timeSegStart": terr("segMs"), "sttSegments": len(segs)}
+    player = None
     if spk:
-        c = Counter(d["speaker"] for d in hits)
+        # 화자가 붙지 않은 구간(None)은 선수 후보에도 분모에도 넣지 않는다
+        c = Counter(d["speaker"] for d in hits if d["speaker"] is not None)
+        n = sum(c.values())
         player = c.most_common(1)[0][0] if c else None
         res["speaker"] = {"clusters": len(set(t["speaker"] for t in turns)),
-                          "playerMatch": round(c[player] / len(hits), 3) if hits else None}
+                          "playerMatch": round(c[player] / n, 3) if n else None,
+                          "unassigned": sum(d["speaker"] is None for d in hits)}
 
     # 일본어 질문: 시트에서 질문 앞 답변 시각 ~ 뒤 답변 시각 사이
     qs, qd = [], []
@@ -113,18 +134,19 @@ def evaluate(name, segs, turns):
         prev = next((x["startMs"] for x in reversed(sheet[:i]) if "startMs" in x), 0)
         nxt = next((x["startMs"] for x in sheet[i + 1:] if "startMs" in x), prev + 120_000)
         lo, hi = min(prev, nxt) - 5_000, max(prev, nxt) + 5_000
-        ja = [s for s in segs if s["lang"] == "ja" and lo <= s["startMs"] <= hi]
+        ja = [s for s in segs if s["lang"] == "ja" and s["endMs"] >= lo and s["startMs"] <= hi]
         jchars = stream(ja)
-        cov, _ = match(norm(r["ja"]), jchars, lo, hi)
-        q = {"sheetRow": r["sheetRow"], "jaSegs": len(ja), "cover": round(cov, 3)}
+        cov, _ = match(norm(r["ja"]), jchars, lo, hi)  # 창 밖 글자는 match 가 시각으로 거른다
+        q = {"sheetRow": r["sheetRow"], "jaSegs": sum(any(lo <= c[1] <= hi for c in stream([s])) for s in ja),
+             "cover": round(cov, 3)}
         if spk and ja:
-            q["speakers"] = sorted({str(spk[segs.index(s)]) for s in ja})
+            q["speakers"] = sorted({str(spk[segs.index(s)]) for s in ja if spk[segs.index(s)] is not None})
         qd.append(q)
         qs.append(q)
     if qs:
         res["questionsJa"] = {"count": len(qs), "detected": round(sum(q["jaSegs"] > 0 for q in qs) / len(qs), 3),
                               "meanCover": round(st.mean(q["cover"] for q in qs), 3)}
-        if spk and player is not None:
+        if player is not None:
             # 질문 구간 화자 중 선수가 아닌 화자가 있는 비율(질문자를 선수와 구별했나)
             withspk = [q for q in qs if q.get("speakers")]
             res["questionsJa"]["notPlayer"] = round(
@@ -156,4 +178,6 @@ if __name__ == "__main__":
     assert norm("안녕, VAL 1!") == "안녕val1"
     _c = [(ch, 1000 * i, 0) for i, ch in enumerate("가나다라마바")]
     assert match("다라마", _c, 0, 10_000) == (1.0, 2)
+    _v = variants([{"id": 1, "lang": "ja"}, {"id": 1, "lang": "ko", "secondPass": True}, {"id": 2, "lang": "ko"}])
+    assert [[x["lang"] for x in v] for v in _v] == [["ja", "ko"], ["ko", "ko"]]
     main()

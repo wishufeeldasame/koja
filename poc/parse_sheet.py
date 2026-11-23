@@ -22,7 +22,7 @@ def to_ms(v):
         return int(v.total_seconds() * 1000 / 60)
     if isinstance(v, str) and (m := re.fullmatch(r"\s*(\d+)[:;](\d{2})(?:[:;](\d{2}))?\s*", v)):
         a, b, c = int(m[1]), int(m[2]), int(m[3] or 0)
-        return ((a * 60 + b) * 1000) if m[3] is None or c == 0 else (a * 3600 + b * 60 + c) * 1000
+        return (a * 60 + b) * 1000 if m[3] is None else (a * 3600 + b * 60 + c) * 1000
     return None
 
 
@@ -62,6 +62,6 @@ def main():
 
 if __name__ == "__main__":
     assert to_ms(dt.time(6, 38)) == 398000
-    assert to_ms("1:02:03") == 3723000 and to_ms("6:38") == 398000 and to_ms("24;22") == 1462000
+    assert to_ms("1:02:03") == 3723000 and to_ms("6:38") == 398000 and to_ms("24;22") == 1462000 and to_ms("1:00:00") == 3600000
     assert to_ms(dt.timedelta(days=1, hours=1, minutes=13)) == 1513000
     main()

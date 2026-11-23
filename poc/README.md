@@ -18,6 +18,7 @@ uv run python vad.py C0003-002 C0004-001 C0008-003            # 공통 VAD 구�
 uv run python vad.py --split 10 C0003-002 C0004-001 C0008-003 # 10초 넘는 구간 강제 분할 → vad10/
 uv run python stt.py qwen C0003-002 ...   # 엔진: qwen, univa, whisper, sherpa06, sherpa17 (-ko: 한국어 고정)
 KOJA_VAD=vad10 uv run python stt.py qwen ...                  # 결과 폴더 qwen@vad10
+KOJA_VAD=vad10 uv run python stt.py qwen-ko ...               # 같은 구간을 한국어 고정으로
 uv run python merge_2pass.py qwen@vad10 qwen-ko@vad10 qwen-2pass@vad10   # 2회 방식
 uv run python diar.py sherpa-campplus@0.9 C0003-002 ...  # pyannote, sherpa-eres2net, sherpa-campplus (@군집 기준값)
 uv run python evaluate.py qwen-2pass@vad10 pyannote      # STT 결과 [화자 결과]

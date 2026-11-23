@@ -37,6 +37,7 @@ uv run python vad.py @S
 VRAM은 별도 창에서 1초마다 기록한다(측정이 끝나면 Ctrl+C).
 
 ```powershell
+New-Item -ItemType Directory -Force ..\eval\work\logs | Out-Null
 nvidia-smi --query-gpu=timestamp,memory.used --format=csv -l 1 > ..\eval\work\logs\vram.csv
 ```
 

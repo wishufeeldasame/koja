@@ -23,6 +23,8 @@ SR = 16000
 MODELS = work_dir("models")
 HF = {"qwen": "Qwen/Qwen3-ASR-1.7B", "univa": "TeamUNIVA/qwen3_asr_1.7b_ko_beta"}
 ALIGNER = "Qwen/Qwen3-ForcedAligner-0.6B"
+# 로컬 서버 요청이 HTTP_PROXY 설정을 타고 밖으로 나가지 않게 프록시를 끈다(샘플 외부 전송 금지)
+LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 LANG = {"Korean": "ko", "Japanese": "ja", "English": "en", "korean": "ko", "japanese": "ja", "english": "en"}
 
 
@@ -97,11 +99,15 @@ class Whisper:
         self.p = subprocess.Popen((["/usr/bin/time", "-l"] if self.timed else []) + cmd,
                                   stdout=subprocess.DEVNULL, stderr=open(self.log, "w", encoding="utf-8"))
         for _ in range(120):
+            if self.p.poll() is not None:
+                raise SystemExit(f"whisper-server가 시작 중 종료됨. 로그: {self.log}")
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{self.PORT}/", timeout=1)
-                break
+                LOCAL.open(f"http://127.0.0.1:{self.PORT}/", timeout=1)
+                return
             except Exception:
                 time.sleep(1)
+        self.close()
+        raise SystemExit(f"whisper-server 준비 시간 초과. 로그: {self.log}")
 
     def run(self, clips):
         out = []
@@ -129,7 +135,7 @@ def post(url, path, fields):
     body += (f"--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
              f"Content-Type: audio/wav\r\n\r\n").encode() + Path(path).read_bytes() + f"\r\n--{b}--\r\n".encode()
     req = urllib.request.Request(url, body, {"Content-Type": f"multipart/form-data; boundary={b}"})
-    return json.loads(urllib.request.urlopen(req, timeout=600).read())
+    return json.loads(LOCAL.open(req, timeout=600).read())
 
 
 def make(engine):
@@ -152,22 +158,24 @@ def main():
     eng = make(engine)
     load_s = time.time() - t0
     meta = {"engine": engine, "loadSec": round(load_s, 1), "samples": {}}
-    for name in names:
-        wav, vad = load(name)
-        t1 = time.time()
-        res = []
-        for i in range(0, len(vad), 8):
-            batch = vad[i:i + 8]
-            for seg, (text, lang, words) in zip(batch, eng.run([cut(wav, s) for s in batch])):
-                res.append({**seg, "text": text, "lang": lang,
-                            "words": [{"text": w["text"], "startMs": seg["startMs"] + int(w["s"] * 1000),
-                                       "endMs": seg["startMs"] + int(w["e"] * 1000)} for w in words]})
-        sec = time.time() - t1
-        (work_dir("stt", tag) / f"{name}.json").write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
-        meta["samples"][name] = {"sec": round(sec, 1), "audioSec": round(len(wav) / SR, 1), "rtf": round(sec / (len(wav) / SR), 3)}
-        print(engine, name, meta["samples"][name], flush=True)
-    if hasattr(eng, "close"):
-        eng.close()
+    try:
+        for name in names:
+            wav, vad = load(name)
+            t1 = time.time()
+            res = []
+            for i in range(0, len(vad), 8):
+                batch = vad[i:i + 8]
+                for seg, (text, lang, words) in zip(batch, eng.run([cut(wav, s) for s in batch])):
+                    res.append({**seg, "text": text, "lang": lang,
+                                "words": [{"text": w["text"], "startMs": seg["startMs"] + int(w["s"] * 1000),
+                                           "endMs": seg["startMs"] + int(w["e"] * 1000)} for w in words]})
+            sec = time.time() - t1
+            (work_dir("stt", tag) / f"{name}.json").write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+            meta["samples"][name] = {"sec": round(sec, 1), "audioSec": round(len(wav) / SR, 1), "rtf": round(sec / (len(wav) / SR), 3)}
+            print(engine, name, meta["samples"][name], flush=True)
+    finally:  # 실패해도 서버가 포트·GPU 메모리를 잡고 남지 않게
+        if hasattr(eng, "close"):
+            eng.close()
     (work_dir("stt", tag) / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 

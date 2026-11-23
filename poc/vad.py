@@ -52,10 +52,10 @@ def split(wav, s, e, max_len):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("names", nargs="+")
-    ap.add_argument("--split", type=float, default=0)
+    ap.add_argument("--split", type=int, default=0)  # 정수 초만 받아 폴더 이름(vadN)과 1:1로 맞춘다
     args = ap.parse_args()
     model = str(work_dir("models") / "silero_vad.onnx")
-    out_dir = work_dir(f"vad{int(args.split)}" if args.split else "vad")
+    out_dir = work_dir(f"vad{args.split}" if args.split else "vad")
     for name in args.names:
         wav, sr = sf.read(work_dir("audio") / f"{name}.wav", dtype="float32")
         assert sr == SR
