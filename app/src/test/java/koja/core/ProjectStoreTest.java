@@ -85,6 +85,29 @@ class ProjectStoreTest {
     }
 
     @Test
+    void rejectsNullJsonBlankSourcePathAndFractionalVersion() throws IOException {
+        Path file = tmp.resolve("project.json");
+        for (String json : List.of(
+                "null",
+                "{\"version\": 1, \"source\": {}, \"speakers\": [], \"sttSegments\": [], \"rows\": []}",
+                "{\"version\": 1.9, \"source\": {\"path\": \"a\"}, \"speakers\": [], \"sttSegments\": [], \"rows\": []}")) {
+            Files.writeString(file, json);
+            assertThrows(IOException.class, () -> ProjectStore.load(file), json);
+        }
+    }
+
+    @Test
+    void saveRejectsInvalidProjectAndKeepsExistingFile() throws IOException {
+        Path file = tmp.resolve("project.json");
+        ProjectStore.save(sample(), file);
+        Project broken = new Project(Project.CURRENT_VERSION, sample().source(), null, null,
+                List.of(), List.of(), null, null, Map.of());
+
+        assertThrows(IOException.class, () -> ProjectStore.save(broken, file));
+        assertEquals(sample(), ProjectStore.load(file));
+    }
+
+    @Test
     void rejectsBrokenJson() throws IOException {
         Path file = tmp.resolve("project.json");
         Files.writeString(file, "{\"version\": 1,");
