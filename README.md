@@ -56,7 +56,11 @@ JavaFX 앱
 
 맥에서 개발한다. 윈도우 CUDA 경로는 맥에서 테스트할 수 없으므로 윈도우 실기에서 확인한다.
 
-빌드·실행 명령은 M1(앱 뼈대)에서 추가한다.
+```bash
+./gradlew run
+```
+
+JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온다(인터넷 연결 필요). 나머지 명령은 [AGENTS.md](AGENTS.md#빌드실행테스트).
 
 작업 규칙: [AGENTS.md](AGENTS.md). Claude Code, Codex, OpenCode/oh-my-opencode, Antigravity 모두 이 파일을 읽는다.
 
