@@ -116,7 +116,10 @@ python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본�
 
 ## Git·PR
 
-- `main`에 직접 푸시하지 않는다. 브랜치를 만들고 PR로 병합한다(squash). 브랜치 이름은 `<종류>/<짧은 설명>`, 예: `feat/review-table`, `docs/decision-log`.
+- 브랜치는 둘이다. `develop`(기본 브랜치, 개발 통합)과 `main`(릴리스). 둘 다 직접 푸시할 수 없다(ruleset).
+- 작업 브랜치는 `develop`에서 만들고, `develop`으로 PR을 열어 **squash** 병합한다.
+- 릴리스는 `develop` → `main` PR을 **rebase** 병합한다. squash하면 두 브랜치 이력이 갈라진다. 릴리스 PR에서 `CHANGELOG.md`의 `Unreleased`를 버전으로 바꾼다.
+- 작업 브랜치 이름은 `<종류>/<짧은 설명>`, 예: `feat/review-table`, `docs/decision-log`.
 - 커밋은 작은 단위로 하고, 메시지는 Conventional Commits 형식으로 쓴다. squash 병합 커밋 메시지는 PR 제목이므로 PR 제목도 같은 형식으로 쓴다.
 - PR 전에 **작성한 도구와 다른 모델**로 코드 리뷰를 돌린다. 예: Claude Code에서 작업했으면 Codex로 리뷰(`codex-review` 스킬, 안 되면 `/code-review`), Codex에서 작업했으면 Claude Code `/code-review` 등 다른 도구로. 어떤 리뷰를 돌렸는지, 못 돌렸으면 그 사실을 PR 설명에 쓴다.
 - PR 설명에는 다음을 적는다: 맥/윈도우 중 어디서 확인했는지, 평가를 돌렸다면 수치 요약(전사 예시는 넣지 않음). 양식은 `.github/pull_request_template.md`.

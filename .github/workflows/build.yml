@@ -4,7 +4,7 @@ name: 빌드
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
