@@ -2,6 +2,7 @@ package koja.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -43,7 +44,9 @@ class ProjectStoreTest {
         ProjectStore.save(original, file);
 
         assertEquals(original, ProjectStore.load(file));
-        assertEquals(List.of(file), Files.list(file.getParent()).toList(), "임시 파일이 남으면 안 된다");
+        try (var files = Files.list(file.getParent())) {
+            assertEquals(List.of(file), files.toList(), "임시 파일이 남으면 안 된다");
+        }
     }
 
     @Test
@@ -62,13 +65,21 @@ class ProjectStoreTest {
         ProjectStore.save(sample(), file);
 
         String json = Files.readString(file, StandardCharsets.UTF_8);
-        assertEquals(true, json.contains("화자 미확인 1"), json);
+        assertTrue(json.contains("화자 미확인 1"), json);
     }
 
     @Test
     void rejectsOtherVersion() throws IOException {
         Path file = tmp.resolve("project.json");
         Files.writeString(file, "{\"version\": 2}");
+
+        assertThrows(IOException.class, () -> ProjectStore.load(file));
+    }
+
+    @Test
+    void rejectsMissingRequiredFields() throws IOException {
+        Path file = tmp.resolve("project.json");
+        Files.writeString(file, "{\"version\": 1}");
 
         assertThrows(IOException.class, () -> ProjectStore.load(file));
     }

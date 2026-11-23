@@ -2,11 +2,13 @@ package koja.core;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -26,6 +28,10 @@ public final class ProjectStore {
         if (project.version() != Project.CURRENT_VERSION) {
             throw new IOException("지원하지 않는 project.json 버전 " + project.version() + ": " + file);
         }
+        if (project.source() == null || project.speakers() == null
+                || project.sttSegments() == null || project.rows() == null) {
+            throw new IOException("project.json에 필수 항목(source, speakers, sttSegments, rows)이 없습니다: " + file);
+        }
         return project;
     }
 
@@ -35,10 +41,16 @@ public final class ProjectStore {
         Files.createDirectories(dir);
         Path tmp = Files.createTempFile(dir, "project", ".json.tmp");
         try {
-            try (OutputStream out = Files.newOutputStream(tmp)) {
-                MAPPER.writerWithDefaultPrettyPrinter().writeValue(out, project);
+            byte[] json;
+            try {
+                json = MAPPER.writerWithDefaultPrettyPrinter().writeValueAsBytes(project);
             } catch (JacksonException e) {
                 throw new IOException("project.json을 쓸 수 없습니다: " + file, e);
+            }
+            try (FileChannel ch = FileChannel.open(tmp, StandardOpenOption.WRITE)) {
+                Channels.newOutputStream(ch).write(json);
+                // 바꿔치기 전에 디스크에 내려야 정전 때 빈 파일로 바뀌지 않는다.
+                ch.force(true);
             }
             try {
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
