@@ -64,13 +64,15 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   build.gradle.kts
   src/main/java/module-info.java
   src/main/java/koja/ui    화면 (진입점 KojaApp)
+  src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore)
+  src/test/java/           JUnit 테스트
 ```
 
 M1 이후 생길 것:
 
 ```
 app/src/main/java/koja/
-  core     Project 모델, 파이프라인, 검증기
+  core     파이프라인, 검증기
   engine   Transcriber / Diarizer / LlmClient / FrameReader 와 구현
   media    ffmpeg 호출
   runtime  내장 바이너리·모델 관리

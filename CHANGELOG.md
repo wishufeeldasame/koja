@@ -13,6 +13,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - M1 PR 나누기 계획(docs/설계.md 8장), 결정 D-023(Gradle Kotlin DSL)·D-024(M1 설치파일은 Actions 아티팩트로만)
 - Gradle 프로젝트(Kotlin DSL, wrapper 9.9.2)와 빈 JavaFX 창(`./gradlew run`). JavaFX는 모듈 경로로 실행(D-025)
 - 빌드 CI(.github/workflows/build.yml): 맥·윈도우에서 `./gradlew build`
+- Project 모델과 project.json 저장/로드(`koja.core`), 단위 테스트(JUnit). JSON은 Jackson 3(D-027)
 
 ### 변경
 - 브랜치 흐름: `develop`(기본)으로 작업 PR을 squash, 릴리스는 `develop` → `main` merge commit(D-026). CI가 `develop` 푸시에도 돈다
