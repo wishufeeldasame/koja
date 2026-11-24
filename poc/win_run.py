@@ -231,7 +231,7 @@ def main():
     mon.start()
     for i, (key, desc, cmd, deps) in enumerate(plan, 1):
         say(f"\n[{i}/{len(plan)}] {desc}")
-        if state.get(key, {}).get("ok"):
+        if state.get(key, {}).get("ok") and key != "sheet":  # 시트 읽기는 2초라 매번 다시 한다(시트 해석이 바뀌어도 반영되게)
             say("    이미 끝남 (건너뜀)")
             continue
         if not all(state.get(d, {}).get("ok") for d in deps):

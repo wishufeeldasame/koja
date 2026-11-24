@@ -57,13 +57,12 @@ uv run python windows/make_package.py      # → eval/work/dist/koja-windows-tes
     - 가짜 단계로 선행 실패 건너뛰기, 재실행, 영상 추가 시 초기화, 26B 재시도 확인
   - 번역: `-ngl auto -lv 4`로 실제 번역 1편, 배치 로그 수집
   - 윈도우용 휠(sherpa-onnx, sherpa-onnx-core, soundfile, psutil, numpy) 존재
+- **윈도우 3060 Ti에서 확인한 것**(1차, 2026-11-24): bat 실행, uv 설치, 다운로드·압축 해제, whisper-server CUDA, sherpa 화자 구분, nvidia-smi·RAM 측정, 결과 파일 작성.
+  - 1차에서 정답 비교와 번역이 `FileNotFoundError`로 실패했다. 담당자 PC의 영상 이름이 `C0003.MP4`라 맥 이름(`C0003-002`)을 고정해 둔 시트 해석이 시트 파일을 만들지 못했다. 지금은 시트 클립 번호로 `samples/`의 영상 이름을 찾는다.
+  - 결과 파일의 `cuda` 값이 비어 있었다(`nvidia-smi` 머리글에서 CUDA 버전을 못 읽음, 원인 미확인). whisper CUDA 빌드는 VRAM 2GB를 쓰며 돌았으므로 드라이버는 맞다(추정).
 - **윈도우에서 아직 확인하지 못한 것**:
-  - bat 실행과 SmartScreen 동작
-  - uv 설치(`UV_INSTALL_DIR`로 `tools\uv\uv.exe`에 받는 것은 설치 스크립트를 읽어 확인했다)
-  - CUDA 빌드 실행
-  - `--fit`이 8GB·10GB에서 26B를 어떻게 나누는지
-  - nvidia-smi 측정
-  - 한글 사용자명 경로
+  - `--fit`이 8GB·10GB에서 26B를 어떻게 나누는지, 번역 속도
+  - 한글 사용자명 경로(묶음을 `C:\koja-test`에 두게 해서 피함)
 
 ## 받은 결과 정리
 

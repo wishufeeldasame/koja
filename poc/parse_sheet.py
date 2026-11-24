@@ -9,8 +9,16 @@ import openpyxl
 
 from common import DATA_ROOT, work_dir
 
-# 시트 안 클립 머리글(예: "이름 C0004") → 샘플 파일. 한 탭에 클립이 여럿일 수 있다. 샘플이 없는 클립은 건너뛴다.
-CLIP_TO_SAMPLE = {"C0003": "C0003-002", "C0004": "C0004-001", "C0008": "C0008-003"}
+
+def clip_to_sample(samples: Path) -> dict:
+    """시트 안 클립 머리글(예: "이름 C0004") → samples/ 의 영상 이름. 영상 이름은 PC마다 다르다(C0004-001.MP4, C0004.MP4).
+    한 탭에 클립이 여럿일 수 있다. 영상이 없는 클립은 건너뛴다."""
+    out = {}
+    for p in samples.glob("*"):
+        m = re.match(r"C\d{4}", p.stem)
+        if p.suffix.lower() == ".mp4" and m:
+            out[m[0]] = p.stem
+    return out
 
 
 def to_ms(v):
@@ -44,7 +52,8 @@ def parse(path: Path):
             elif isinstance(a, str) and e and not c:
                 question = {"sheetRow": i, "ja": a.strip(), "type": e}
                 rows.append({"sheetRow": i, "kind": "QUESTION_JA", "ja": a.strip(), "type": e})
-    return {CLIP_TO_SAMPLE[k]: v for k, v in out.items() if k in CLIP_TO_SAMPLE}
+    names = clip_to_sample(path.parent)
+    return {names[k]: v for k, v in out.items() if k in names}
 
 
 def main():

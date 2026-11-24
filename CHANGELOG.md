@@ -21,6 +21,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - M0 PoC 스크립트(`poc/`, Python + uv): WAV 추출, 정답 시트 파싱, 공통 VAD, STT 5종·화자 구분 3종 실행, 2회 방식 병합, 정답 시트 비교 평가, 윈도우 측정 안내(poc/WINDOWS.md)
 - 번역 모델 비교 스크립트(`poc/translate.py`, `poc/mt_eval.py`): llama-server로 시트 한국어 번역, 행 ID 대응 검증, chrF·영문 용어·처리 시간·GPU 메모리. 설계 7.2에 수치, 윈도우 측정 절차 추가. 결정 D-041(로컬 번역 모델, 보류)
 - 윈도우 담당자 PC용 테스트 묶음(`poc/windows/`, `poc/win_setup.py`, `poc/win_run.py`): 더블클릭 설치(uv·CUDA 빌드·모델 자동 다운로드, 이어 받기·sha256 검사) → 11단계 테스트(STT 2회·화자·번역 E4B/26B) → 숫자만 담은 결과 파일. 쉬운 설명서 포함. 의존성 `psutil` 추가(단계별 RAM 측정)
+- 윈도우 실측 1차(RTX 3060 Ti 8GB): STT 2회·화자 구분 수치를 D-039·설계 7.1에 기록. 영상 이름이 PC마다 달라(`C0003.MP4`) 시트를 못 찾던 문제를 고침(시트 클립 → 영상 이름을 `samples/`에서 찾음, 시트 읽기는 재실행마다 다시 함)
 - 결정 D-039(로컬 STT는 whisper.cpp 내장, VAD·화자 구분은 sherpa-onnx), D-040(STT 2회 방식, 행 시각은 단어 시간). 설계 7.1에 PoC 수치 요약
 
 ### 변경
