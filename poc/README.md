@@ -22,6 +22,8 @@ KOJA_VAD=vad10 uv run python stt.py qwen-ko ...               # 같은 구간을
 uv run python merge_2pass.py qwen@vad10 qwen-ko@vad10 qwen-2pass@vad10   # 2회 방식
 uv run python diar.py sherpa-campplus@0.9 C0003-002 ...  # pyannote, sherpa-eres2net, sherpa-campplus (@군집 기준값)
 uv run python evaluate.py qwen-2pass@vad10 pyannote      # STT 결과 [화자 결과]
+uv run python translate.py e4b C0003-002 ...           # 번역: e4b, q9b, g26b → eval/work/mt/<모델>/
+uv run python mt_eval.py e4b q9b g26b                    # chrF·처리 시간·GPU 메모리
 ./run_all.sh stt qwen whisper ...         # 엔진을 하나씩 돌리며 로그·최대 메모리 기록(맥)
 ```
 
@@ -41,6 +43,7 @@ uv run python evaluate.py qwen-2pass@vad10 pyannote      # STT 결과 [화자 �
 | VAD | silero_vad.onnx | `eval/work/models/` |
 | sherpa 화자 | pyannote segmentation-3.0 onnx + 3D-Speaker 임베딩 | `eval/work/models/diar/` |
 | pyannote | pyannote/speaker-diarization-community-1 (이용 조건 동의·HF 토큰 필요) | Hugging Face 캐시 |
+| 번역 e4b / q9b / g26b | unsloth gemma-4-E4B-it / Qwen3.5-9B / gemma-4-26B-A4B-it GGUF Q4_K_M, `llama-server`(brew `llama.cpp`) | `eval/work/models/llm/` |
 
 ## 평가 방법 (D-032 순서)
 
@@ -50,3 +53,7 @@ uv run python evaluate.py qwen-2pass@vad10 pyannote      # STT 결과 [화자 �
 4. **일본어 질문**: 시트 질문 앞뒤 답변 사이에 `ja` 구간이 있는지, 질문 글자가 그 구간에 얼마나 들어 있는지.
 
 시트는 편집용 최종본이라 시트에 없는 결과 행은 오류로 세지 않는다.
+
+## 번역 평가 방법
+
+입력은 시트 한국어 행, 정답은 시트 일본어(다듬은 최종본이라 참고 지표). chrF는 문자 n-gram 1~6, beta 2, 공백 제외로 말뭉치 단위로 합산한다. 영문 고유명사 유지율은 시트 일본어에 있는 영문 단어가 번역에도 있는 비율이다. GPU 메모리는 맥 IOAccelerator 사용량을 서버 시작 전과 비교한 최대값(시스템 전체 값이라 추정)이다. 1시간 환산은 whisper 한국어 고정 STT의 시간당 글자 수로 계산한다.

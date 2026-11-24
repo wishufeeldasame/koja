@@ -55,6 +55,22 @@ uv run python evaluate.py whisper-2pass 'sherpa-campplus@0.9'
 
 최대 RAM은 실행 중 작업 관리자 "세부 정보" 탭의 `whisper-server.exe`·`python.exe` 메모리(최대 작업 집합 열을 켜서)로 본다.
 
+## 번역 (D-037 결정용)
+
+Gemma 4 26B-A4B와 E4B만 잰다. llama.cpp 릴리스(https://github.com/ggml-org/llama.cpp/releases)에서 `llama-<빌드>-bin-win-cuda-12.4-x64.zip`과 `cudart-llama-bin-win-cuda-12.4-x64.zip`을 받아 한 폴더에 푼다(2026-11 기준 최신 빌드 b12655). GGUF(`gemma-4-26B-A4B-it-UD-Q4_K_M.gguf` 17.0GB, `gemma-4-E4B-it-Q4_K_M.gguf` 5.0GB, unsloth)는 `eval\work\models\llm\`에 둔다(맥에서 복사해도 된다). STT 측정(`whisper-ko`)을 먼저 해 두어야 1시간 환산이 나온다.
+
+```powershell
+$env:LLAMA_SERVER = "C:\path\to\llama-server.exe"
+uv run python translate.py e4b @S
+# 26B는 VRAM에 다 안 들어가면 MoE 전문가 일부를 CPU로 내린다. 3080(10GB)은 숫자를 줄여 본다
+$env:KOJA_LLAMA_ARGS = "--n-cpu-moe 20"
+uv run python translate.py g26b @S
+Remove-Item Env:KOJA_LLAMA_ARGS
+uv run python mt_eval.py e4b g26b
+```
+
+`--n-cpu-moe` 값을 바꿔 가며 잰 경우에는 값마다 시간과 VRAM을 같이 적는다. 서버가 시작 중 메모리 부족으로 죽으면 값을 늘린다.
+
 ## 보낼 값
 
 장비마다 아래만 알려 주면 된다(전사 내용은 보내지 않는다).
@@ -63,3 +79,4 @@ uv run python evaluate.py whisper-2pass 'sherpa-campplus@0.9'
 - `vram.csv`의 최대 `memory.used`와 측정 전 유휴값
 - 작업 관리자의 최대 작업 집합(`whisper-server.exe`, 화자 구분 중 `python.exe`)
 - `evaluate.py` 출력 세 줄(재현율·시간 수치만 있다)
+- 번역: `mt_eval.py` 출력(chrF·`minPerHourVideo`), 모델별 최대 VRAM, 쓴 `--n-cpu-moe` 값

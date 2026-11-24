@@ -16,6 +16,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - Project 모델과 project.json 저장/로드(`koja.core`), 단위 테스트(JUnit). JSON은 Jackson 3(D-027)
 - 검수 화면(더미 데이터): 영상 + 행 표, 행 클릭 → 영상 이동, 한국어·일본어 편집 후 저장, 파일 메뉴(열기·더미 프로젝트 만들기·저장). 재생 영상 규칙 D-028, `javafx-media` 추가
 - M0 PoC 스크립트(`poc/`, Python + uv): WAV 추출, 정답 시트 파싱, 공통 VAD, STT 5종·화자 구분 3종 실행, 2회 방식 병합, 정답 시트 비교 평가, 윈도우 측정 안내(poc/WINDOWS.md)
+- 번역 모델 비교 스크립트(`poc/translate.py`, `poc/mt_eval.py`): llama-server로 시트 한국어 번역, 행 ID 대응 검증, chrF·영문 용어·처리 시간·GPU 메모리. 설계 7.2에 수치, 윈도우 측정 절차 추가. 결정 D-037(로컬 번역 모델, 보류)
 - 결정 D-035(로컬 STT는 whisper.cpp 내장, VAD·화자 구분은 sherpa-onnx), D-036(STT 2회 방식, 행 시각은 단어 시간). 설계 7.1에 PoC 수치 요약
 
 ### 변경
