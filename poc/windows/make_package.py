@@ -11,10 +11,18 @@ POC = HERE.parent
 TOP = "koja-test"
 
 
+def git(*args) -> bytes:
+    return subprocess.run(["git", *args], cwd=POC, capture_output=True, check=True).stdout
+
+
 def poc_files():
-    # 저장소에 올라간 파일만 넣는다(.venv·캐시·비공개 산출물이 섞이지 않게)
-    out = subprocess.run(["git", "ls-files", "--", "."], cwd=POC, capture_output=True, text=True, check=True).stdout
-    return [POC / p for p in out.split() if not p.startswith("windows/")]
+    # 커밋된 파일만 넣는다(.venv·캐시·비공개 산출물이 섞이지 않게). 경로는 poc/ 기준
+    return [p for p in git("ls-tree", "-r", "--name-only", "HEAD", "--", ".").decode().split() if not p.startswith("windows/")]
+
+
+def head(rel: str) -> bytes:
+    """작업 트리가 아니라 HEAD 의 내용."""
+    return git("show", f"HEAD:poc/{rel}")
 
 
 def crlf(text: str) -> bytes:
@@ -26,17 +34,20 @@ def main():
     from common import work_dir  # KOJA_DATA_ROOT 기준 eval/work (커밋 안 되는 곳)
     dest = Path(sys.argv[1]) if len(sys.argv) > 1 else work_dir("dist") / "koja-windows-test.zip"
     dest.parent.mkdir(parents=True, exist_ok=True)
+    dirty = git("status", "--porcelain", "--", ".").decode().strip()
+    if dirty:
+        sys.exit(f"poc/ 에 커밋하지 않은 변경이 있습니다. 커밋한 뒤 다시 만드세요:\n{dirty}")
     files = poc_files()
     for need in ("win_setup.py", "win_run.py", "translate.py", "mt_eval.py", "uv.lock"):
-        assert POC / need in files, f"{need} 가 git 에 없음(커밋 먼저)"
+        assert need in files, f"{need} 가 git 에 없음(커밋 먼저)"
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
         # 메모장이 한글을 확실히 읽도록 BOM, bat 은 cmd 라벨 처리 때문에 CRLF
-        z.writestr(f"{TOP}/0_READ_ME_FIRST.txt", b"\xef\xbb\xbf" + crlf((HERE / "0_READ_ME_FIRST.txt").read_text(encoding="utf-8")))
+        z.writestr(f"{TOP}/0_READ_ME_FIRST.txt", b"\xef\xbb\xbf" + crlf(head("windows/0_READ_ME_FIRST.txt").decode("utf-8")))
         for bat in ("1_setup.bat", "2_run_test.bat"):
-            z.writestr(f"{TOP}/{bat}", crlf((HERE / bat).read_text(encoding="ascii")))
+            z.writestr(f"{TOP}/{bat}", crlf(head(f"windows/{bat}").decode("ascii")))
         z.writestr(f"{TOP}/samples/PUT_VIDEOS_AND_SHEET_HERE.txt", b"\xef\xbb\xbf" + crlf("이 폴더에 영상(.MP4) 3개와 sheet.xlsx 를 넣으세요.\n"))
         for p in files:
-            z.write(p, f"{TOP}/poc/{p.relative_to(POC).as_posix()}")
+            z.writestr(f"{TOP}/poc/{p}", head(p))
     print(dest, f"{dest.stat().st_size / 1e3:.0f} KB", len(files) + 4, "files")
 
 

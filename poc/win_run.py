@@ -85,19 +85,32 @@ def keep_awake():
 
 
 def steps(names, has_sheet):
+    """(키, 설명, 명령, 선행 단계). 선행 단계가 성공하지 않으면 건너뛴다(입력이 없어도 0으로 끝나는 스크립트가 있어서)."""
     py = [sys.executable, "-X", "utf8"]
-    s = [("audio", "영상에서 소리 뽑기", py + ["extract_audio.py"]),
-         ("vad", "말소리 구간 찾기", py + ["vad.py"] + names),
-         ("stt_auto", "음성 인식 1회차 (언어 자동)", py + ["stt.py", "whisper"] + names),
-         ("stt_ko", "음성 인식 2회차 (한국어 고정)", py + ["stt.py", "whisper-ko"] + names),
-         ("merge", "음성 인식 결과 합치기", py + ["merge_2pass.py", "whisper", "whisper-ko", "whisper-2pass"]),
-         ("diar", "화자 구분", py + ["diar.py", DIAR] + names)]
+    s = [("audio", "영상에서 소리 뽑기", py + ["extract_audio.py"], []),
+         ("vad", "말소리 구간 찾기", py + ["vad.py"] + names, ["audio"]),
+         ("stt_auto", "음성 인식 1회차 (언어 자동)", py + ["stt.py", "whisper"] + names, ["vad"]),
+         ("stt_ko", "음성 인식 2회차 (한국어 고정)", py + ["stt.py", "whisper-ko"] + names, ["vad"]),
+         ("merge", "음성 인식 결과 합치기", py + ["merge_2pass.py", "whisper", "whisper-ko", "whisper-2pass"], ["stt_auto", "stt_ko"]),
+         ("diar", "화자 구분", py + ["diar.py", DIAR] + names, ["audio"])]
     if has_sheet:
-        s += [("sheet", "정답 시트 읽기", py + ["parse_sheet.py"]),
-              ("eval", "음성 인식 정답 비교", py + ["evaluate.py", "whisper-2pass", DIAR])]
-        s += [(f"mt_{k}", desc, py + ["translate.py", k] + names) for k, desc in MT]
-        s += [("mt_eval", "번역 정답 비교", py + ["mt_eval.py"] + [k for k, _ in MT])]
+        s += [("sheet", "정답 시트 읽기", py + ["parse_sheet.py"], []),
+              ("eval", "음성 인식 정답 비교", py + ["evaluate.py", "whisper-2pass", DIAR], ["merge", "diar", "sheet"])]
+        s += [(f"mt_{k}", desc, py + ["translate.py", k] + names, ["sheet"]) for k, desc in MT]
+        s += [("mt_eval", "번역 정답 비교", py + ["mt_eval.py"] + [k for k, _ in MT], ["stt_ko"] + [f"mt_{k}" for k, _ in MT])]
     return s
+
+
+def fingerprint(samples):
+    """영상·시트의 이름·크기·수정 시각. 바뀌면 이전 결과를 버리고 처음부터 한다."""
+    return sorted([p.name, p.stat().st_size, int(p.stat().st_mtime)] for p in samples.iterdir()
+                  if p.suffix.lower() in (".mp4", ".xlsx"))
+
+
+def reset_outputs():
+    # 모델·실행파일(bin, models)은 두고, 영상에서 나온 중간 결과만 지운다
+    for d in ("audio", "vad", "stt", "diar", "sheet", "mt", "tmp"):
+        shutil.rmtree(work_dir() / d, ignore_errors=True)
 
 
 def env(llama_args=LLAMA_ARGS[0]):
@@ -112,7 +125,7 @@ def env(llama_args=LLAMA_ARGS[0]):
 
 def run_step(key, desc, cmd, mon, llama_args=LLAMA_ARGS[0]):
     log = LOGS / f"win_{key}.log"
-    mon.vram_base = mon.vram or mon.vram_now()
+    mon.vram_base = mon.vram_now()  # 직전 단계 서버 메모리가 섞이지 않게 시작 직전에 잰다
     t0 = time.time()
     with open(log, "w", encoding="utf-8") as f:
         p = subprocess.Popen(cmd, cwd=POC, env=env(llama_args), stdout=f, stderr=subprocess.STDOUT)
@@ -151,10 +164,13 @@ def write_result(state, plan):
            f"CPU: {platform.processor()} / 코어 {psutil.cpu_count(logical=False)} / RAM {vm.total / 1024 ** 3:.0f} GB",
            f"윈도우: {platform.platform()}", "",
            "[단계별] 상태 | 걸린 시간 | 최대 VRAM(시작 전) | 최대 RAM(테스트 프로세스 합)"]
-    for key, desc, _ in plan:
+    for key, desc, _, _ in plan:
         r = state.get(key)
         if not r:
             out.append(f"- {desc}: 실행 안 함")
+            continue
+        if r.get("skipped"):
+            out.append(f"- {desc}: 건너뜀(앞 단계 실패)")
             continue
         out.append(f"- {desc}: {'성공' if r['ok'] else '실패(코드 %s)' % r['code']} | {r['sec'] // 60}분 {r['sec'] % 60}초 | "
                    f"{r['vramPeakGB']} GB ({r['vramBaseGB']} GB) | {r['ramPeakGB']} GB"
@@ -176,9 +192,12 @@ def write_result(state, plan):
         lines = [l for l in tail(LOGS / f"win_{key}.log", 60) if l[:1].isalnum() and ("{" in l or "chrF" in l or "Per" in l or "Peak" in l)]
         if lines:
             out += ["", f"[{title}]"] + lines
-    failed = [k for k, _, _ in plan if state.get(k) and not state[k]["ok"]]
+    failed = [k for k, _, _, _ in plan if state.get(k) and not state[k]["ok"] and not state[k].get("skipped")]
     for k in failed:
-        out += ["", f"[실패한 단계 {k} 마지막 기록]"] + tail(LOGS / f"win_{k}.log")
+        # 원본 로그는 영상 파일 경로(이름) 등이 들어갈 수 있어 보내는 파일에 넣지 않는다. 오류 종류만 적는다
+        err = next((l.split(":")[0].strip() for l in reversed(tail(LOGS / f"win_{k}.log", 200))
+                    if l[:1].isalpha() and ("Error" in l.split(":")[0] or "Exit" in l.split(":")[0])), "알 수 없음")
+        out.append(f"[실패한 단계 {k}] 오류 종류: {err} (자세한 기록: eval\\work\\logs\\win_{k}.log, 보내지 말고 보관)")
     RESULT.write_text("\n".join(out) + "\n", encoding="utf-8-sig")  # 메모장에서 한글이 깨지지 않게 BOM
     return failed
 
@@ -192,7 +211,7 @@ def main():
             say("설치가 끝나지 않았습니다. 먼저 1_setup.bat 을 실행하세요.")
             sys.exit(1)
     samples = DATA_ROOT / "samples"
-    names = sorted({p.stem for p in samples.glob("*") if p.suffix.lower() in (".mp4", ".mov", ".mkv")})
+    names = sorted({p.stem for p in samples.glob("*") if p.suffix.lower() == ".mp4"})  # extract_audio.py 와 같은 확장자
     if not names:
         say(f"영상이 없습니다. {samples} 폴더에 영상 파일(.MP4)을 넣고 다시 실행하세요.")
         sys.exit(1)
@@ -200,14 +219,25 @@ def main():
     say(f"영상 {len(names)}개: {', '.join(names)}")
     say("정답 시트: " + ("있음" if has_sheet else "없음 (정답 비교와 번역 테스트는 건너뜁니다)"))
     plan = steps(names, has_sheet)
-    state = {} if "--again" in sys.argv else (read_json(STATE) or {})
+    state = read_json(STATE) or {}
+    fp = fingerprint(samples)
+    if "--again" in sys.argv or state.get("_inputs") != fp:
+        if state:
+            say("영상이나 시트가 바뀌었거나 처음부터 다시 하라는 요청이라, 이전 결과를 지우고 처음부터 합니다.")
+        reset_outputs()
+        state = {"_inputs": fp}
     keep_awake()
     mon = Monitor()
     mon.start()
-    for i, (key, desc, cmd) in enumerate(plan, 1):
+    for i, (key, desc, cmd, deps) in enumerate(plan, 1):
         say(f"\n[{i}/{len(plan)}] {desc}")
         if state.get(key, {}).get("ok"):
             say("    이미 끝남 (건너뜀)")
+            continue
+        if not all(state.get(d, {}).get("ok") for d in deps):
+            say("    앞 단계가 실패해서 건너뜁니다.")
+            state[key] = {"ok": False, "skipped": True}
+            STATE.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
             continue
         state[key] = run_step(key, desc, cmd, mon)
         if not state[key]["ok"] and key.startswith("mt_"):

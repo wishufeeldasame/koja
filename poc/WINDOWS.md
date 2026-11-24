@@ -15,7 +15,7 @@ cd poc
 uv run python windows/make_package.py      # → eval/work/dist/koja-windows-test.zip (수십 KB)
 ```
 
-- git에 올라간 `poc/` 파일만 넣는다. 커밋하지 않은 수정은 들어가지 않는다.
+- HEAD에 커밋된 `poc/` 파일 내용만 넣는다. `poc/`에 커밋하지 않은 변경이 있으면 멈춘다.
 - 모델·실행파일·영상은 넣지 않는다.
   - 모델과 실행파일: 담당자 PC에서 `1_setup.bat`이 받는다.
   - 영상과 `sheet.xlsx`: 따로 전달하고 담당자가 `samples\`에 넣는다. 외부 AI 전송 금지 자료라 AI 서비스를 거치지 않는 경로(USB, 직접 전달 등)로 준다.
@@ -25,8 +25,8 @@ uv run python windows/make_package.py      # → eval/work/dist/koja-windows-tes
 | 파일 | 하는 일 |
 |---|---|
 | `1_setup.bat` → `win_setup.py` | ① uv가 없으면 설치한다. uv·Python·캐시는 모두 묶음 폴더의 `tools\` 안에 두고 PATH는 바꾸지 않아서, 폴더를 지우면 전부 지워진다. ② `uv run`이 Python 3.12와 패키지를 설치한다. ③ 그래픽카드, 드라이버(CUDA 12.4 이상), 디스크 공간을 확인한다. ④ 실행파일과 모델 약 24GB를 받는다. 이어 받기와 sha256 검사를 하고, 다시 실행하면 받은 것은 건너뛴다. 폴더가 OneDrive 안이면 멈춘다 |
-| `2_run_test.bat` → `win_run.py` | 11단계를 차례로 돌린다: 소리 추출 → VAD → whisper 자동 언어 → whisper 한국어 고정 → 2회 병합 → 화자 구분(CAM++ 0.9) → 시트 → STT 평가 → 번역 E4B → 번역 26B → 번역 평가. 끝난 단계는 건너뛰고(`--again`이면 처음부터), 테스트 중에는 절전을 막는다 |
-| `RESULT_send_this.txt` | 숫자만 모은다: 단계별 성공 여부, 걸린 시간, 최대 VRAM, 최대 RAM, RTF, 평가 수치, 번역 서버의 층·버퍼 배치. 실패한 단계는 로그 마지막 20줄도 넣는다 |
+| `2_run_test.bat` → `win_run.py` | 11단계를 차례로 돌린다: 소리 추출 → VAD → whisper 자동 언어 → whisper 한국어 고정 → 2회 병합 → 화자 구분(CAM++ 0.9) → 시트 → STT 평가 → 번역 E4B → 번역 26B → 번역 평가. 앞 단계가 실패하면 뒤 단계는 건너뛴다. 끝난 단계는 다시 하지 않는데, 영상·시트가 바뀌었거나 `--again`이면 중간 결과를 지우고 처음부터 한다. 테스트 중에는 절전을 막는다 |
+| `RESULT_send_this.txt` | 숫자만 모은다: 단계별 성공 여부, 걸린 시간, 최대 VRAM, 최대 RAM, RTF, 평가 수치, 번역 서버의 층·버퍼 배치. 실패한 단계는 오류 종류만 적는다. 원본 로그에는 영상 파일 경로가 들어갈 수 있어서 `eval\work\logs\`에만 남긴다 |
 
 - 최대 VRAM은 nvidia-smi로 1초마다 잰 **시스템 전체** 값이다. 단계 시작 전 값도 같이 적는다.
 - 최대 RAM은 단계 프로세스와 서버 프로세스(`whisper-server.exe`, `llama-server.exe`)의 RSS 합이다.
@@ -34,7 +34,7 @@ uv run python windows/make_package.py      # → eval/work/dist/koja-windows-tes
 **받는 실행파일**(고정 버전):
 - whisper.cpp b5907 `whisper-bin-win-cuda-12.4.0-x64.zip`
 - llama.cpp b12655 `llama-b12655-bin-win-cuda-12.4-x64.zip` + `cudart-llama-bin-win-cuda-12.4-x64.zip`
-- ffmpeg BtbN latest LGPL. 해시는 고정하지 않았다.
+- ffmpeg GyanD 9.1 essentials(GPL 빌드, 테스트 전용. 앱 번들은 LGPL 빌드)
 
 모델 파일은 맥 PoC에서 쓴 것과 sha256이 같다.
 
@@ -48,8 +48,13 @@ uv run python windows/make_package.py      # → eval/work/dist/koja-windows-tes
 ## 확인한 것 / 못 한 것
 
 - **맥에서 확인한 것**:
-  - 설치 스크립트: 이어 받기, 해시 불일치 때 멈춤, ffmpeg zip·llama zip(`llama-server.exe` 포함 53개 파일)·tar.bz2 압축 해제(실제 파일로)
-  - 실행기: 단계 실행, 측정, 결과 파일 작성(맥 결과 데이터로)
+  - 설치 스크립트(실제 파일로):
+    - 이어 받기(206 응답 확인), 끝까지 받은 `.part`는 요청 없이 바로 검사, 응답이 짧게 끊기면 이어 받기
+    - 해시 불일치 때 멈춤, 마커만 남은 경우 다시 받기
+    - ffmpeg·llama zip(`llama-server.exe` 포함 53개 파일)·tar.bz2 압축 해제
+  - 실행기:
+    - 단계 실행, 측정, 결과 파일 작성(맥 결과 데이터로)
+    - 가짜 단계로 선행 실패 건너뛰기, 재실행, 영상 추가 시 초기화, 26B 재시도 확인
   - 번역: `-ngl auto -lv 4`로 실제 번역 1편, 배치 로그 수집
   - 윈도우용 휠(sherpa-onnx, sherpa-onnx-core, soundfile, psutil, numpy) 존재
 - **윈도우에서 아직 확인하지 못한 것**:
