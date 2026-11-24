@@ -44,9 +44,45 @@ tasks.test {
 application {
     mainModule = "koja"
     mainClass = "koja.ui.KojaApp"
-    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "--enable-native-access=javafx.graphics")
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "--enable-native-access=javafx.graphics,javafx.media")
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
+}
+
+// 현재 OS용 설치파일(.msi / .dmg). jpackage는 크로스 빌드가 안 돼서 CI가 OS별로 돌린다(D-002).
+// 버전: macOS jpackage는 첫 자리가 0인 버전을 거부한다. 릴리스 버전을 정하면 -PappVersion으로 넘긴다.
+val appVersion = providers.gradleProperty("appVersion").getOrElse("1.0.0")
+val jpackageLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+
+tasks.register<Exec>("jpackage") {
+    group = "distribution"
+    description = "현재 OS용 설치파일을 build/jpackage에 만든다"
+    dependsOn(tasks.jar)
+    val os = System.getProperty("os.name").lowercase()
+    val windows = os.contains("win")
+    val outDir = layout.buildDirectory.dir("jpackage").get().asFile
+    val runtimeJars = configurations.runtimeClasspath
+    val appJar = tasks.jar.flatMap { it.archiveFile }
+
+    doFirst {
+        delete(outDir)
+        val home = jpackageLauncher.get().metadata.installationPath.asFile
+        executable = home.resolve(if (windows) "bin/jpackage.exe" else "bin/jpackage").path
+        val type = when {
+            windows -> listOf("--type", "msi", "--win-menu", "--win-shortcut", "--win-dir-chooser")
+            os.contains("mac") -> listOf("--type", "dmg")
+            else -> listOf("--type", "app-image")
+        }
+        args = type + listOf(
+            "--name", "koja",
+            "--app-version", appVersion,
+            "--dest", outDir.path,
+            "--module-path", (listOf(appJar.get().asFile) + runtimeJars.get().files).joinToString(File.pathSeparator),
+            "--module", "koja/koja.ui.KojaApp",
+            "--java-options", "-Dfile.encoding=UTF-8",
+            "--java-options", "--enable-native-access=javafx.graphics,javafx.media",
+        )
+    }
 }
