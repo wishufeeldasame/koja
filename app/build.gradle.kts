@@ -65,8 +65,14 @@ tasks.register<Exec>("jpackage") {
     val outDir = layout.buildDirectory.dir("jpackage").get().asFile
     val runtimeJars = configurations.runtimeClasspath
     val appJar = tasks.jar.flatMap { it.archiveFile }
+    // scripts/bundle_ffmpeg.sh가 만든다. 앱 안에서는 맥 Contents/ffmpeg, 윈도우 <앱 폴더>/ffmpeg가 된다(D-042).
+    val ffmpegDir = layout.buildDirectory.dir("ffmpeg").get().asFile
 
     doFirst {
+        val exe = if (windows) "ffmpeg.exe" else "ffmpeg"
+        if (!ffmpegDir.resolve(exe).isFile || !ffmpegDir.resolve("NOTICE.txt").isFile) {
+            throw GradleException("번들 ffmpeg가 없다: ${ffmpegDir}. 먼저 scripts/bundle_ffmpeg.sh를 실행한다")
+        }
         delete(outDir)
         val home = jpackageLauncher.get().metadata.installationPath.asFile
         executable = home.resolve(if (windows) "bin/jpackage.exe" else "bin/jpackage").path
@@ -81,6 +87,7 @@ tasks.register<Exec>("jpackage") {
             "--dest", outDir.path,
             "--module-path", (listOf(appJar.get().asFile) + runtimeJars.get().files).joinToString(File.pathSeparator),
             "--module", "koja/koja.ui.KojaApp",
+            "--app-content", ffmpegDir.path,
             "--java-options", "-Dfile.encoding=UTF-8",
             "--java-options", "--enable-native-access=javafx.graphics,javafx.media",
         )
