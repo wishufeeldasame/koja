@@ -30,7 +30,7 @@ GH_SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
 
 # (설명, URL, 저장 경로, 크기, sha256 또는 None, 풀기)
 # 버전·해시는 맥 PoC(2026-11-23)에서 쓴 파일과 같다. whisper.cpp·llama.cpp 는 윈도우 CUDA 12.4 빌드.
-# 번역 모델은 D-037 결정 조건대로 Gemma 4 E4B·26B-A4B 두 개만(Qwen3.5-9B 제외).
+# 번역 모델은 D-041 결정 조건대로 Gemma 4 E4B·26B-A4B 두 개만(Qwen3.5-9B 제외).
 FILES = [
     ("ffmpeg (영상에서 소리 추출)",  # 테스트용이라 GPL 빌드. 앱 번들은 LGPL 빌드를 쓴다(설계 3장)
      "https://github.com/GyanD/codexffmpeg/releases/download/9.1/ffmpeg-9.1-essentials_build.zip",

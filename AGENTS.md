@@ -39,7 +39,7 @@
 
 - Java 25 LTS, JavaFX, Gradle, jpackage
 - 내장 바이너리: ffmpeg(LGPL 빌드), llama.cpp `llama-server`, whisper.cpp `whisper-server`(둘 다 Win CUDA / Mac Metal)
-- 로컬 STT: whisper-server(large-v3-turbo), 2회 방식(D-035, D-036). VAD·화자 구분: sherpa-onnx Java(CPU)
+- 로컬 STT: whisper-server(large-v3-turbo), 2회 방식(D-039, D-040). VAD·화자 구분: sherpa-onnx Java(CPU)
 - Google Sheets API v4 + OAuth Desktop(루프백 + PKCE), 스코프 `drive.file`
 
 새 의존성은 표준 라이브러리나 이미 있는 의존성으로 안 될 때만 추가하고, 이유를 커밋 메시지에 쓴다.

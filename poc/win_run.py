@@ -24,7 +24,7 @@ STATE = LOGS / "win_state.json"
 RESULT = DATA_ROOT / "RESULT_send_this.txt"
 SERVERS = {"whisper-server.exe", "llama-server.exe", "whisper-server", "llama-server"}
 DIAR = "sherpa-campplus@0.9"
-MT = [("e4b", "번역 모델 1 (Gemma 4 E4B)"), ("g26b", "번역 모델 2 (Gemma 4 26B)")]  # D-037 결정 조건
+MT = [("e4b", "번역 모델 1 (Gemma 4 E4B)"), ("g26b", "번역 모델 2 (Gemma 4 26B)")]  # D-041 결정 조건
 # translate.py 의 -ngl 99 뒤에 붙어 덮어쓴다. 1차: llama-server --fit(기본 on)이 VRAM 에 맞춰 층·MoE 전문가를 나눈다.
 # 2차(1차 실패 시): 전문가 전부 CPU. 어느 쪽으로 돌았는지는 결과 파일의 서버 로그 줄로 남는다.
 LLAMA_ARGS = ["-ngl auto -lv 4", "-ngl 99 --cpu-moe -lv 4"]  # -lv 4: 층·버퍼 배치를 로그에 남긴다

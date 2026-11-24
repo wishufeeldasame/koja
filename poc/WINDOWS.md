@@ -2,9 +2,9 @@
 
 이 테스트는 두 가지를 확인한다.
 - 맥에서 고른 경로가 실제로 쓸 윈도우 PC에서 돌아가는지, 얼마나 걸리고 메모리를 얼마나 쓰는지
-  - STT: whisper.cpp 2회 방식(D-035, D-036)
+  - STT: whisper.cpp 2회 방식(D-039, D-040)
   - 화자 구분: sherpa-onnx CAM++
-- 번역 모델 결정(D-037)에 필요한 Gemma 4 E4B와 26B-A4B의 속도·VRAM
+- 번역 모델 결정(D-041)에 필요한 Gemma 4 E4B와 26B-A4B의 속도·VRAM
 
 담당자는 개발 도구 없이 더블클릭만 하도록 **묶음(zip)** 으로 전달한다. 담당자용 설명은 [windows/0_READ_ME_FIRST.txt](windows/0_READ_ME_FIRST.txt)에 있다.
 
@@ -67,7 +67,7 @@ uv run python windows/make_package.py      # → eval/work/dist/koja-windows-tes
 
 ## 받은 결과 정리
 
-`RESULT_send_this.txt`의 수치를 `docs/설계.md` 7장과 결정기록(D-035 윈도우 측정, D-037 결정 조건)에 옮긴다.
+`RESULT_send_this.txt`의 수치를 `docs/설계.md` 7장과 결정기록(D-039 윈도우 측정, D-041 결정 조건)에 옮긴다.
 - VRAM은 "시작 전" 값을 빼서 본다.
 - `whisper-ko`는 측정 편의상 모든 구간을 다시 돈다. 실제 2회 방식은 `ja`로 잡힌 구간(맥 샘플 기준 54~68%)만 다시 돌리므로, STT 처리 시간은 `whisper` RTF + `whisper-ko` RTF × 0.6으로 환산한다.
 
