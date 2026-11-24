@@ -57,7 +57,7 @@ docs/           공개 문서 (설계, 결정 기록)
   private/      비공개 문서 (커밋 금지)
 .agents/agents/ 프로젝트 에이전트 원본
 .claude/ .codex/ .opencode/   도구별 에이전트 파일 (생성물)
-scripts/        저장소 관리 스크립트 (sync_agents.py)
+scripts/        저장소 관리 스크립트 (sync_agents.py, bundle_ffmpeg.sh)
 .github/        PR 양식, CI (pr-checks.yml, build.yml)
 settings.gradle.kts, gradlew, gradle/   Gradle 빌드 (Kotlin DSL)
 app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
@@ -109,11 +109,12 @@ python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본�
 ./gradlew run        # 앱 실행
 ./gradlew test       # 테스트 (ffmpeg가 PATH에 없으면 가져오기 테스트는 건너뜀)
 ./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
-./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3
+scripts/bundle_ffmpeg.sh   # 설치파일에 넣을 LGPL ffmpeg를 app/build/ffmpeg에 (맥: 소스 빌드 약 1분, 윈도우: Git Bash에서 다운로드)
+./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3. app/build/ffmpeg가 없으면 실패
 ```
 
 - 윈도우에서는 `gradlew.bat`을 쓴다.
-- 윈도우에서 `.msi`를 직접 만들려면 [WiX Toolset](https://wixtoolset.org/)이 설치되어 있고 PATH에 있어야 한다(jpackage가 요구). 맥 `.dmg`는 추가 도구가 필요 없다.
+- 윈도우에서 `.msi`를 직접 만들려면 [WiX Toolset](https://wixtoolset.org/)이 설치되어 있고 PATH에 있어야 한다(jpackage가 요구). 맥 `.dmg`는 추가 도구가 필요 없다. 맥에서 ffmpeg를 빌드하려면 Xcode 명령줄 도구가 있어야 한다.
 - JDK 25가 없어도 된다. Gradle 툴체인이 처음 빌드할 때 받아 `~/.gradle/jdks`에 둔다. Gradle을 실행할 JDK(17 이상)는 있어야 한다.
 
 - 새 로직(파서, 검증기, 시간 변환, 행 묶기)에는 작은 단위 테스트를 붙인다.

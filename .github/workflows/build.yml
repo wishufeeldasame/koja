@@ -33,11 +33,45 @@ jobs:
         shell: bash # 윈도우에서도 같은 gradlew 스크립트를 쓴다(Git Bash)
         run: ./gradlew build --console=plain
 
+      # 맥은 소스 빌드에 몇 분 걸리고 윈도우는 170MB를 받는다. 고정 버전·해시가 스크립트에 있어 스크립트 해시로 캐시한다(D-042).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/build/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bundle_ffmpeg.sh') }}
+
+      - name: LGPL ffmpeg 받기·빌드·검사
+        shell: bash
+        run: scripts/bundle_ffmpeg.sh app/build/ffmpeg
+
       # 설치파일은 실행 아티팩트로만 올린다. Releases에는 올리지 않는다(D-024).
       - name: 설치파일 만들기
         shell: bash
         # 윈도우 MSI는 버전이 같으면 같은 제품으로 보고 덮어 설치하지 않는다. 실행마다 버전을 올린다.
         run: ./gradlew jpackage -PappVersion=1.0.${{ github.run_number }} --console=plain
+
+      # 앱이 찾는 위치(koja.runtime.Ffmpeg.bundled)에 ffmpeg가 들어갔는지 설치파일을 풀어 확인한다.
+      - name: 설치파일 안 ffmpeg 확인 (맥)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" app/build/jpackage/*.dmg
+          "$mnt/koja.app/Contents/ffmpeg/ffmpeg" -hide_banner -version | head -1
+          ls "$mnt/koja.app/Contents/ffmpeg"
+          hdiutil detach "$mnt"
+
+      - name: 설치파일 안 ffmpeg 확인 (윈도우)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem app/build/jpackage/*.msi).FullName
+          $dir = Join-Path $env:RUNNER_TEMP msi
+          Start-Process msiexec -Wait -ArgumentList '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$dir`""
+          $launcher = Get-ChildItem $dir -Recurse -Filter koja.exe | Select-Object -First 1
+          if (-not $launcher) { throw "koja.exe 없음" }
+          $ffmpeg = Join-Path $launcher.DirectoryName 'ffmpeg\ffmpeg.exe'
+          if (-not (Test-Path $ffmpeg)) { Get-ChildItem $dir -Recurse | Select-Object -ExpandProperty FullName; throw "ffmpeg.exe 없음: $ffmpeg" }
+          & $ffmpeg -hide_banner -version | Select-Object -First 1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
