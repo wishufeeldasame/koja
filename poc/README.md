@@ -27,7 +27,7 @@ uv run python mt_eval.py e4b q9b g26b                    # chrF·처리 시간·
 ./run_all.sh stt qwen whisper ...         # 엔진을 하나씩 돌리며 로그·최대 메모리 기록(맥)
 ```
 
-처리 시간은 스크립트가 `meta.json`에, 최대 메모리는 `run_all.sh`가 `/usr/bin/time -l`(맥: peak memory footprint)로 잰다. whisper는 서버 프로세스 값이 `eval/work/stt/<엔진>/server_time.txt`에 남는다. 윈도우 측정은 [WINDOWS.md](WINDOWS.md).
+처리 시간은 스크립트가 `meta.json`에, 최대 메모리는 `run_all.sh`가 `/usr/bin/time -l`(맥: peak memory footprint)로 잰다. whisper는 서버 프로세스 값이 `eval/work/stt/<엔진>/server_time.txt`에 남는다. 윈도우 실기 테스트는 담당자 PC용 묶음으로 한다: [WINDOWS.md](WINDOWS.md).
 
 **2회 방식**: 자동 언어로 한 번 돌리고, `ja` 등 한국어가 아닌 구간만 한국어로 고정해 한 번 더 돌려 둘 다 남긴다. 한·일이 섞인 구간에서 자동 언어 판정이 한국어 답변까지 일본어로 번역해 버리는 것을 막는다.
 

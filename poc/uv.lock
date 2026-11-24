@@ -851,6 +851,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "numpy" },
     { name = "openpyxl" },
+    { name = "psutil" },
     { name = "sherpa-onnx" },
     { name = "soundfile" },
 ]
@@ -865,6 +866,7 @@ torch = [
 requires-dist = [
     { name = "numpy" },
     { name = "openpyxl" },
+    { name = "psutil" },
     { name = "pyannote-audio", marker = "extra == 'torch'" },
     { name = "qwen-asr", marker = "extra == 'torch'" },
     { name = "sherpa-onnx" },

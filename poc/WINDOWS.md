@@ -1,82 +1,74 @@
-# 윈도우 실기 측정 (3060 Ti 8GB, 3080 10GB)
+# 윈도우 실기 테스트 (담당자 PC: 3060 Ti 8GB, 3080 10GB)
 
-결정한 경로(D-035)만 잰다: whisper.cpp `whisper-server`(CUDA) 2회 방식 STT + sherpa-onnx campplus 화자 구분(CPU).
-맥 수치와 비교할 값은 **처리 시간(RTF)**, **최대 VRAM**, **최대 RAM**이다. 정확도는 맥과 같은 모델이라 다시 재지 않아도 되지만, 결과 파일이 나오므로 평가도 한 번 돌린다.
+이 테스트는 두 가지를 확인한다.
+- 맥에서 고른 경로가 실제로 쓸 윈도우 PC에서 돌아가는지, 얼마나 걸리고 메모리를 얼마나 쓰는지
+  - STT: whisper.cpp 2회 방식(D-035, D-036)
+  - 화자 구분: sherpa-onnx CAM++
+- 번역 모델 결정(D-037)에 필요한 Gemma 4 E4B와 26B-A4B의 속도·VRAM
 
-## 준비 (한 번만)
+담당자는 개발 도구 없이 더블클릭만 하도록 **묶음(zip)** 으로 전달한다. 담당자용 설명은 [windows/0_READ_ME_FIRST.txt](windows/0_READ_ME_FIRST.txt)에 있다.
 
-1. 필요한 것: [uv](https://docs.astral.sh/uv/), Git, NVIDIA 드라이버(CUDA 12.4 이상 지원), ffmpeg(`winget install Gyan.FFmpeg`).
-2. 저장소를 받고 `poc`에서 의존성을 설치한다(torch 계열은 빼고).
+## 묶음 만들기 (개발자)
 
-   ```powershell
-   cd koja\poc
-   uv sync
-   ```
-
-3. 샘플 영상 3편과 `sheet.xlsx`를 `koja\samples\`에 둔다(커밋 금지 폴더).
-4. whisper.cpp 릴리스(https://github.com/ggml-org/whisper.cpp/releases)에서 `whisper-bin-win-cuda-12.4.0-x64.zip`을 받아 압축을 푼다(2026-11 기준 최신 빌드 b5907). 안에 `whisper-server.exe`가 있는지 확인한다.
-5. 모델을 `koja\eval\work\models\`에 둔다. 맥에서 쓴 파일을 그대로 복사해도 된다.
-   - `ggml-large-v3-turbo.bin` (1.6GB): https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
-   - `silero_vad.onnx`: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
-   - `diar\sherpa-onnx-pyannote-segmentation-3-0\model.onnx`: https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2 (압축 해제)
-   - `diar\campplus_zh_en.onnx`: https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx (이름을 바꿔 저장)
-
-## 실행
-
-PowerShell에서 `koja\poc` 기준. `KOJA_DATA_ROOT`는 `samples\`가 있는 저장소 경로다.
-
-```powershell
-$env:KOJA_DATA_ROOT = (Resolve-Path ..).Path
-$env:WHISPER_SERVER = "C:\path\to\whisper-server.exe"
-$S = "C0008-003","C0003-002","C0004-001"
-uv run python extract_audio.py
-uv run python parse_sheet.py
-uv run python vad.py @S
+```bash
+cd poc
+uv run python windows/make_package.py      # → eval/work/dist/koja-windows-test.zip (수십 KB)
 ```
 
-VRAM은 별도 창에서 1초마다 기록한다(측정이 끝나면 Ctrl+C).
+- git에 올라간 `poc/` 파일만 넣는다. 커밋하지 않은 수정은 들어가지 않는다.
+- 모델·실행파일·영상은 넣지 않는다.
+  - 모델과 실행파일: 담당자 PC에서 `1_setup.bat`이 받는다.
+  - 영상과 `sheet.xlsx`: 따로 전달하고 담당자가 `samples\`에 넣는다. 외부 AI 전송 금지 자료라 AI 서비스를 거치지 않는 경로(USB, 직접 전달 등)로 준다.
 
-```powershell
-New-Item -ItemType Directory -Force ..\eval\work\logs | Out-Null
-nvidia-smi --query-gpu=timestamp,memory.used --format=csv -l 1 > ..\eval\work\logs\vram.csv
-```
+## 묶음이 하는 일
 
-STT 두 번(자동 언어, 한국어 고정)과 병합, 화자 구분, 평가:
+| 파일 | 하는 일 |
+|---|---|
+| `1_setup.bat` → `win_setup.py` | ① uv가 없으면 설치한다. uv·Python·캐시는 모두 묶음 폴더의 `tools\` 안에 두고 PATH는 바꾸지 않아서, 폴더를 지우면 전부 지워진다. ② `uv run`이 Python 3.12와 패키지를 설치한다. ③ 그래픽카드, 드라이버(CUDA 12.4 이상), 디스크 공간을 확인한다. ④ 실행파일과 모델 약 24GB를 받는다. 이어 받기와 sha256 검사를 하고, 다시 실행하면 받은 것은 건너뛴다. 폴더가 OneDrive 안이면 멈춘다 |
+| `2_run_test.bat` → `win_run.py` | 11단계를 차례로 돌린다: 소리 추출 → VAD → whisper 자동 언어 → whisper 한국어 고정 → 2회 병합 → 화자 구분(CAM++ 0.9) → 시트 → STT 평가 → 번역 E4B → 번역 26B → 번역 평가. 끝난 단계는 건너뛰고(`--again`이면 처음부터), 테스트 중에는 절전을 막는다 |
+| `RESULT_send_this.txt` | 숫자만 모은다: 단계별 성공 여부, 걸린 시간, 최대 VRAM, 최대 RAM, RTF, 평가 수치, 번역 서버의 층·버퍼 배치. 실패한 단계는 로그 마지막 20줄도 넣는다 |
 
-```powershell
-uv run python stt.py whisper @S
-uv run python stt.py whisper-ko @S
-uv run python merge_2pass.py whisper whisper-ko whisper-2pass
-uv run python diar.py 'sherpa-campplus@0.9' @S
-uv run python evaluate.py whisper-2pass 'sherpa-campplus@0.9'
-```
+- 최대 VRAM은 nvidia-smi로 1초마다 잰 **시스템 전체** 값이다. 단계 시작 전 값도 같이 적는다.
+- 최대 RAM은 단계 프로세스와 서버 프로세스(`whisper-server.exe`, `llama-server.exe`)의 RSS 합이다.
 
-`whisper-ko`는 측정 편의상 모든 구간을 다시 돈다. 실제 2회 방식은 `ja`로 잡힌 구간(맥 샘플 기준 54~68%)만 다시 돌리므로 처리 시간은 `whisper` RTF + `whisper-ko` RTF × 0.6으로 환산한다.
+**받는 실행파일**(고정 버전):
+- whisper.cpp b5907 `whisper-bin-win-cuda-12.4.0-x64.zip`
+- llama.cpp b12655 `llama-b12655-bin-win-cuda-12.4-x64.zip` + `cudart-llama-bin-win-cuda-12.4-x64.zip`
+- ffmpeg BtbN latest LGPL. 해시는 고정하지 않았다.
 
-최대 RAM은 실행 중 작업 관리자 "세부 정보" 탭의 `whisper-server.exe`·`python.exe` 메모리(최대 작업 집합 열을 켜서)로 본다.
+모델 파일은 맥 PoC에서 쓴 것과 sha256이 같다.
 
-## 번역 (D-037 결정용)
+**번역 서버 설정**:
+- 1차: `KOJA_LLAMA_ARGS="-ngl auto -lv 4"`로 띄운다.
+  - `translate.py`에 박힌 `-ngl 99`를 뒤의 인자가 덮어쓴다. 맥에서 `-ngl 99 -ngl 0` → GPU 층 0/43으로 확인했다.
+  - 그러면 llama-server `--fit`(기본 on)이 VRAM에 맞춰 층과 MoE 전문가를 CPU로 나눈다.
+- 2차: 1차가 실패하면 `-ngl 99 --cpu-moe`(전문가 전부 CPU)로 한 번 더 시도한다.
+- 어느 설정으로 돌았는지, GPU·CPU에 무엇이 올라갔는지는 결과 파일에 남는다.
 
-Gemma 4 26B-A4B와 E4B만 잰다. llama.cpp 릴리스(https://github.com/ggml-org/llama.cpp/releases)에서 `llama-<빌드>-bin-win-cuda-12.4-x64.zip`과 `cudart-llama-bin-win-cuda-12.4-x64.zip`을 받아 한 폴더에 푼다(2026-11 기준 최신 빌드 b12655). GGUF(`gemma-4-26B-A4B-it-UD-Q4_K_M.gguf` 17.0GB, `gemma-4-E4B-it-Q4_K_M.gguf` 5.0GB, unsloth)는 `eval\work\models\llm\`에 둔다(맥에서 복사해도 된다). STT 측정(`whisper-ko`)을 먼저 해 두어야 1시간 환산이 나온다.
+## 확인한 것 / 못 한 것
 
-```powershell
-$env:LLAMA_SERVER = "C:\path\to\llama-server.exe"
-uv run python translate.py e4b @S
-# 26B는 VRAM에 다 안 들어가면 MoE 전문가 일부를 CPU로 내린다. 3080(10GB)은 숫자를 줄여 본다
-$env:KOJA_LLAMA_ARGS = "--n-cpu-moe 20"
-uv run python translate.py g26b @S
-Remove-Item Env:KOJA_LLAMA_ARGS
-uv run python mt_eval.py e4b g26b
-```
+- **맥에서 확인한 것**:
+  - 설치 스크립트: 이어 받기, 해시 불일치 때 멈춤, ffmpeg zip·llama zip(`llama-server.exe` 포함 53개 파일)·tar.bz2 압축 해제(실제 파일로)
+  - 실행기: 단계 실행, 측정, 결과 파일 작성(맥 결과 데이터로)
+  - 번역: `-ngl auto -lv 4`로 실제 번역 1편, 배치 로그 수집
+  - 윈도우용 휠(sherpa-onnx, sherpa-onnx-core, soundfile, psutil, numpy) 존재
+- **윈도우에서 아직 확인하지 못한 것**:
+  - bat 실행과 SmartScreen 동작
+  - uv 설치(`UV_INSTALL_DIR`로 `tools\uv\uv.exe`에 받는 것은 설치 스크립트를 읽어 확인했다)
+  - CUDA 빌드 실행
+  - `--fit`이 8GB·10GB에서 26B를 어떻게 나누는지
+  - nvidia-smi 측정
+  - 한글 사용자명 경로
 
-`--n-cpu-moe` 값을 바꿔 가며 잰 경우에는 값마다 시간과 VRAM을 같이 적는다. 서버가 시작 중 메모리 부족으로 죽으면 값을 늘린다.
+## 받은 결과 정리
 
-## 보낼 값
+`RESULT_send_this.txt`의 수치를 `docs/설계.md` 7장과 결정기록(D-035 윈도우 측정, D-037 결정 조건)에 옮긴다.
+- VRAM은 "시작 전" 값을 빼서 본다.
+- `whisper-ko`는 측정 편의상 모든 구간을 다시 돈다. 실제 2회 방식은 `ja`로 잡힌 구간(맥 샘플 기준 54~68%)만 다시 돌리므로, STT 처리 시간은 `whisper` RTF + `whisper-ko` RTF × 0.6으로 환산한다.
 
-장비마다 아래만 알려 주면 된다(전사 내용은 보내지 않는다).
+## 수동 실행 (참고)
 
-- `eval\work\stt\whisper\meta.json`, `eval\work\stt\whisper-ko\meta.json`, `eval\work\diar\sherpa-campplus@0.9\meta.json`의 `rtf`
-- `vram.csv`의 최대 `memory.used`와 측정 전 유휴값
-- 작업 관리자의 최대 작업 집합(`whisper-server.exe`, 화자 구분 중 `python.exe`)
-- `evaluate.py` 출력 세 줄(재현율·시간 수치만 있다)
-- 번역: `mt_eval.py` 출력(chrF·`minPerHourVideo`), 모델별 최대 VRAM, 쓴 `--n-cpu-moe` 값
+묶음 없이 저장소에서 직접 돌릴 때는 `win_run.py`가 부르는 명령을 그대로 쓴다.
+- 환경변수 `FFMPEG`, `WHISPER_SERVER`, `LLAMA_SERVER`, `KOJA_LLAMA_ARGS`, `KOJA_DATA_ROOT`는 `win_run.py`의 `env()`를 본다.
+- 명령 순서는 `steps()`를 본다.
+- 26B의 MoE 전문가 오프로드 수를 손으로 정하려면 `KOJA_LLAMA_ARGS="--n-cpu-moe 20"`처럼 준다. 서버가 시작 중 메모리 부족으로 죽으면 값을 늘린다.
