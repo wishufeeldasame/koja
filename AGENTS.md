@@ -65,6 +65,8 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   src/main/java/module-info.java
   src/main/java/koja/ui    화면 (진입점 KojaApp)
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore)
+  src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
+  src/main/java/koja/runtime  ffmpeg 위치, OS별 H.264 인코더
   src/test/java/           JUnit 테스트
 ```
 
@@ -74,8 +76,8 @@ M1 이후 생길 것:
 app/src/main/java/koja/
   core     파이프라인, 검증기
   engine   Transcriber / Diarizer / LlmClient / FrameReader 와 구현
-  media    ffmpeg 호출
-  runtime  내장 바이너리·모델 관리
+  media    프레임 추출 등 ffmpeg 호출 추가
+  runtime  내장 바이너리(번들 ffmpeg 포함)·모델 관리
   export   Google Sheets
 poc/            M0 비교 실험 스크립트 (Python, 앱과 분리)
 eval/           평가 스크립트와 결과 (results/ 아래 날짜별)
@@ -105,7 +107,7 @@ samples/        샘플 영상·정답 시트, README.md(외부 전송 허용 표
 ```bash
 python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본과 맞는지
 ./gradlew run        # 앱 실행
-./gradlew test       # 테스트
+./gradlew test       # 테스트 (ffmpeg가 PATH에 없으면 가져오기 테스트는 건너뜀)
 ./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
 ./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3
 ```

@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
@@ -14,6 +15,7 @@ import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import koja.core.Project;
@@ -30,12 +32,15 @@ public final class KojaApp extends Application {
         MenuItem open = new MenuItem("열기…");
         open.setAccelerator(KeyCombination.keyCombination("Shortcut+O"));
         open.setOnAction(e -> openChosen());
+        MenuItem importItem = new MenuItem("가져오기…");
+        importItem.setAccelerator(KeyCombination.keyCombination("Shortcut+I"));
+        importItem.setOnAction(e -> importChosen());
         MenuItem dummy = new MenuItem("더미 프로젝트 만들기…");
         dummy.setOnAction(e -> createDummy());
         MenuItem save = new MenuItem("저장");
         save.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
         save.setOnAction(e -> save());
-        MenuBar menus = new MenuBar(new Menu("파일", null, open, dummy, save));
+        MenuBar menus = new MenuBar(new Menu("파일", null, importItem, open, dummy, save));
 
         stage.setTitle("koja");
         stage.setScene(new Scene(new BorderPane(review, menus, null, null, null), 1280, 720));
@@ -77,6 +82,69 @@ public final class KojaApp extends Application {
         } catch (IOException | RuntimeException e) {
             error("열 수 없습니다", e);
         }
+    }
+
+    /** 영상 선택 → 프로젝트 폴더 선택 → 변환 → project.json → 검수 화면. */
+    private void importChosen() {
+        if (!confirmDiscard()) {
+            return;
+        }
+        FileChooser videoChooser = new FileChooser();
+        videoChooser.setTitle("가져올 영상");
+        videoChooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("영상", "*.mp4", "*.m4v", "*.mov", "*.mkv", "*.avi", "*.mts", "*.m2ts",
+                        "*.ts", "*.webm", "*.wmv", "*.MP4", "*.MOV", "*.MTS"),
+                new FileChooser.ExtensionFilter("모든 파일", "*.*"));
+        File video = videoChooser.showOpenDialog(stage);
+        if (video == null) {
+            return;
+        }
+        DirectoryChooser dirChooser = new DirectoryChooser();
+        dirChooser.setTitle("프로젝트 폴더(빈 폴더)");
+        dirChooser.setInitialDirectory(video.getParentFile());
+        File chosenDir = dirChooser.showDialog(stage);
+        if (chosenDir == null) {
+            return;
+        }
+        Path dir = chosenDir.toPath();
+        Path file = dir.resolve("project.json");
+        // 다른 영상의 프로젝트나 프록시를 덮어쓰지 않는다.
+        if (Files.exists(file) || Files.exists(dir.resolve(ProjectFiles.PROXY))
+                || Files.exists(dir.resolve(ProjectFiles.AUDIO))) {
+            error("가져올 수 없습니다", new IOException("project.json, " + ProjectFiles.PROXY + ", " + ProjectFiles.AUDIO
+                    + " 중 하나가 이미 있는 폴더입니다. 빈 폴더를 고르세요."));
+            return;
+        }
+        Path source = video.toPath().toAbsolutePath();
+        ImportDialog.run(stage, source, dir, result -> {
+            String name = source.getFileName().toString();
+            Project project = new Project(Project.CURRENT_VERSION,
+                    new Project.Source(source.toString(), result.durationMs()),
+                    new Project.Meta(name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name, "", List.of()),
+                    null, List.of(), List.of(), List.of(), null,
+                    Map.of("import", new Project.Stage("ffmpeg", true)));
+            try {
+                ProjectStore.save(project, file);
+            } catch (IOException e) {
+                // 프로젝트 없이 남으면 같은 폴더로 다시 가져올 수 없다. 이번 가져오기가 만든 파일이다(위에서 없음을 확인).
+                try {
+                    Files.deleteIfExists(dir.resolve(ProjectFiles.AUDIO));
+                    Files.deleteIfExists(dir.resolve(ProjectFiles.PROXY));
+                } catch (IOException ignored) {
+                    // 저장 실패를 알리는 것이 먼저다.
+                }
+                error("저장할 수 없습니다", e);
+                return;
+            }
+            if (result.proxyEncoder() == null) {
+                Alert alert = new Alert(Alert.AlertType.WARNING,
+                        "검수 화면은 원본 영상을 재생합니다. 원본 형식에 따라 재생되지 않을 수 있습니다.\n\n" + result.proxyError());
+                alert.initOwner(stage);
+                alert.setHeaderText("프록시 영상을 만들지 못했습니다");
+                alert.showAndWait();
+            }
+            show(project, file);
+        }, e -> error("가져오기에 실패했습니다", e instanceof Exception ex ? ex : new IOException(e)));
     }
 
     private void createDummy() {
