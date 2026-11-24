@@ -18,38 +18,48 @@ def ngrams(s, n):
 
 
 def chrf(hyps, refs):
-    match = [0] * N
-    hyp_n = [0] * N
-    ref_n = [0] * N
+    """SacreBLEU 2.x 기본 chrF와 같은 집계: 행별 [번역 n-gram 수(정답에 그 차수가 없으면 0), 정답 수, 일치 수]를
+    말뭉치로 합산하고, 양쪽에 있는 차수만 정밀도·재현율을 평균한다."""
+    stats = [[0, 0, 0] for _ in range(N)]
     for h, r in zip(hyps, refs):
         for n in range(1, N + 1):
             hc, rc = ngrams(h, n), ngrams(r, n)
-            match[n - 1] += sum((hc & rc).values())
-            hyp_n[n - 1] += sum(hc.values())
-            ref_n[n - 1] += sum(rc.values())
-    ps = [m / h for m, h in zip(match, hyp_n) if h]
-    rs = [m / r for m, r in zip(match, ref_n) if r]
-    p, r = (sum(ps) / len(ps) if ps else 0), (sum(rs) / len(rs) if rs else 0)
+            st = stats[n - 1]
+            st[0] += sum(hc.values()) if rc else 0
+            st[1] += sum(rc.values())
+            st[2] += sum((hc & rc).values())
+    used = [(m / hn, m / rn) for hn, rn, m in stats if hn and rn]
+    if not used:
+        return 0.0
+    p = sum(x for x, _ in used) / len(used)
+    r = sum(y for _, y in used) / len(used)
     return 0.0 if p + r == 0 else 100 * (1 + BETA ** 2) * p * r / (BETA ** 2 * p + r)
 
 
-LATIN = re.compile(r"[A-Za-z][A-Za-z0-9.]+")
+# 점은 단어 안(예: X.Y)에서만 이어 붙인다. 문장 끝 마침표는 단어에 넣지 않는다.
+LATIN = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)*")
+
+
+def latin_words(t):
+    return {w.lower() for w in LATIN.findall(t) if len(w) >= 2}
 
 
 def latin_kept(hyp, ref):
-    """시트 일본어의 영문 단어(팀·롤·대회 이름)가 번역에도 있는 개수, 전체 개수."""
-    words = {w.lower() for w in LATIN.findall(ref)}
-    return sum(w in hyp.lower() for w in words), len(words)
+    """시트 일본어의 영문 단어(팀·롤·대회 이름)가 번역에도 같은 단어로 있는 개수, 전체 개수."""
+    words, got = latin_words(ref), latin_words(hyp)
+    return len(words & got), len(words)
 
 
 def has_kana(t):
     return any("぀" <= ch <= "ヿ" for ch in t)
 
 
-def ko_chars_per_hour():
+def ko_chars_per_hour():  # whisper-ko 결과가 없으면 None (1시간 환산만 미측정)
     """1시간 영상에서 번역할 한국어 글자 수 추정: whisper 한국어 고정 STT 출력 글자 수 / 오디오 길이.
     일본어 구간도 한국어로 적힌 값이라 실제보다 많게(보수적으로) 잡힌다."""
     d = work_dir("stt", "whisper-ko")
+    if not (d / "meta.json").exists():
+        return None
     meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))["samples"]
     chars = sum(len(s["text"].strip()) for n in meta  # translate.py koChars 와 같이 공백 포함
                 for s in json.loads((d / f"{n}.json").read_text(encoding="utf-8")))
@@ -58,7 +68,7 @@ def ko_chars_per_hour():
 
 def main():
     per_hour = ko_chars_per_hour()
-    print("koCharsPerHour", round(per_hour))
+    print("koCharsPerHour", round(per_hour) if per_hour else None)
     out_dir = DATA_ROOT / "eval" / "results" / date.today().isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = {}
@@ -67,7 +77,7 @@ def main():
         summary[key] = {"gpuPeakGB": meta.get("gpuPeakGB"), "loadSec": meta["loadSec"]}
         tot_sec = sum(m["sec"] for m in meta["samples"].values())
         tot_chars = sum(m["koChars"] for m in meta["samples"].values())
-        summary[key]["minPerHourVideo"] = round(tot_sec / tot_chars * per_hour / 60, 1)
+        summary[key]["minPerHourVideo"] = round(tot_sec / tot_chars * per_hour / 60, 1) if per_hour else None
         print(key, "gpuPeakGB", meta.get("gpuPeakGB"), "minPerHourVideo", summary[key]["minPerHourVideo"])
         for name, m in meta["samples"].items():
             sheet = {r["sheetRow"]: r for r in json.loads((work_dir("sheet") / f"{name}.json").read_text(encoding="utf-8"))
@@ -87,6 +97,9 @@ def main():
 
 if __name__ == "__main__":
     assert round(chrf(["今日は晴れ"], ["今日は晴れ"]), 1) == 100.0 and chrf(["あ"], ["い"]) == 0.0
+    assert round(chrf(["了解"], ["了解しました。"]), 2) == 26.76  # SacreBLEU 2.5.1 값
     assert 0 < chrf(["今日は雨です"], ["今日は晴れです"]) < 100
     assert latin_kept("VALの選手", "val Champions") == (1, 2)
+    assert latin_kept("EDGEです", "EDGです") == (0, 1) and latin_kept("VALです", "VAL.") == (1, 1)
+    assert latin_words("X.Yのチーム") == {"x.y"}
     main()

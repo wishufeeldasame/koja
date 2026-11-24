@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -23,7 +24,6 @@ MODELS = {
 }
 BATCH = 8
 CONTEXT = 4
-PORT = 18081
 # 로컬 서버 요청이 HTTP_PROXY 설정을 타고 밖으로 나가지 않게 프록시를 끈다(샘플 외부 전송 금지)
 LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -42,6 +42,13 @@ def gpu_in_use():
     return sum(int(x) for x in re.findall(r'"In use system memory"=(\d+)', out))
 
 
+def free_port():
+    # 고정 포트를 쓰면 이미 떠 있는 다른 서버(다른 모델)에 원문을 보낼 수 있다
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 class GpuPeak(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
@@ -54,10 +61,12 @@ class GpuPeak(threading.Thread):
 
 
 class Server:
-    def __init__(self, key):
-        self.log = work_dir("mt", key) / "server_time.txt"
+    def __init__(self, key, out_dir):
+        self.log = out_dir / "server_time.txt"
+        self.model = MODELS[key]
+        self.port = free_port()
         server = os.environ.get("LLAMA_SERVER", shutil.which("llama-server") or "llama-server")
-        cmd = [server, "-m", str(work_dir("models", "llm") / MODELS[key]), "--port", str(PORT),
+        cmd = [server, "-m", str(work_dir("models", "llm") / self.model), "--host", "127.0.0.1", "--port", str(self.port),
                "-ngl", "99", "-c", "8192", "-np", "1", "--reasoning", "off"]
         # 8GB 카드에서 26B는 MoE 전문가 일부를 CPU로 내린다(예: KOJA_LLAMA_ARGS="--n-cpu-moe 20")
         cmd += os.environ.get("KOJA_LLAMA_ARGS", "").split()
@@ -65,16 +74,22 @@ class Server:
         self.timed = sys.platform == "darwin"
         self.p = subprocess.Popen((["/usr/bin/time", "-l"] if self.timed else []) + cmd,
                                   stdout=subprocess.DEVNULL, stderr=open(self.log, "w", encoding="utf-8"))
+
+    def wait_ready(self):
+        """우리가 띄운 프로세스가 살아 있고, 응답한 서버가 이 모델을 올렸는지까지 확인한다."""
+        url = f"http://127.0.0.1:{self.port}"
         for _ in range(600):
             if self.p.poll() is not None:
                 raise SystemExit(f"llama-server가 시작 중 종료됨. 로그: {self.log}")
             try:
-                if json.loads(LOCAL.open(f"http://127.0.0.1:{PORT}/health", timeout=1).read()).get("status") == "ok":
-                    return
-            except Exception:
+                if json.loads(LOCAL.open(f"{url}/health", timeout=1).read()).get("status") == "ok":
+                    props = json.loads(LOCAL.open(f"{url}/props", timeout=5).read())
+                    if self.p.poll() is None and str(props.get("model_path", "")).endswith(self.model):
+                        return
+                    raise SystemExit(f"포트 {self.port}에서 다른 서버가 응답함. 로그: {self.log}")
+            except (OSError, ValueError):
                 pass
             time.sleep(1)
-        self.close()
         raise SystemExit(f"llama-server 준비 시간 초과. 로그: {self.log}")
 
     def chat(self, messages, ids):
@@ -83,7 +98,7 @@ class Server:
                             "properties": {"id": {"type": "integer"}, "ja": {"type": "string"}}}}
         body = {"messages": messages, "temperature": 0, "max_tokens": 2048,
                 "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
-        req = urllib.request.Request(f"http://127.0.0.1:{PORT}/v1/chat/completions", json.dumps(body).encode(),
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/v1/chat/completions", json.dumps(body).encode(),
                                      {"Content-Type": "application/json"})
         r = json.loads(LOCAL.open(req, timeout=900).read())
         return r["choices"][0]["message"]["content"], r.get("usage", {})
@@ -144,12 +159,20 @@ def translate(srv, rows, stats):
 
 def main():
     key, names = sys.argv[1], sys.argv[2:]
+    # 실행 하나의 번역·측정을 임시 폴더에 모았다가 모든 샘플이 끝났을 때만 mt/<모델>/ 로 바꿔 놓는다.
+    # 중간에 끊긴 실행이 이전 실행의 meta.json 과 섞여 평가되지 않게 하려는 것이다.
+    final = work_dir("mt", key)
+    tmp = final.with_name(key + ".partial")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
     gpu = GpuPeak()
     gpu.start()
     t0 = time.time()
-    srv = Server(key)
-    meta = {"model": MODELS[key], "loadSec": round(time.time() - t0, 1), "samples": {}}
+    srv = Server(key, tmp)
+    meta = {"model": MODELS[key], "llamaArgs": os.environ.get("KOJA_LLAMA_ARGS", ""), "samples": {}}
     try:
+        srv.wait_ready()
+        meta["loadSec"] = round(time.time() - t0, 1)
         for name in names:
             sheet = json.loads((work_dir("sheet") / f"{name}.json").read_text(encoding="utf-8"))
             rows = [{"id": r["sheetRow"], "ko": r["ko"]} for r in sheet if "startMs" in r]
@@ -157,16 +180,19 @@ def main():
             t1 = time.time()
             out = translate(srv, rows, stats)
             sec = time.time() - t1
-            (work_dir("mt", key) / f"{name}.json").write_text(
+            (tmp / f"{name}.json").write_text(
                 json.dumps([{"id": r["id"], "ja": r["ja"]} for r in out], ensure_ascii=False), encoding="utf-8")
             meta["samples"][name] = {"rows": len(rows), "koChars": sum(len(r["ko"]) for r in rows),
                                      "sec": round(sec, 1), **stats}
             print(key, name, meta["samples"][name], flush=True)
-    finally:  # 실패해도 서버가 GPU 메모리를 잡고 남지 않게
+    finally:  # 준비 중 중단돼도 서버가 GPU 메모리를 잡고 남지 않게
         srv.close()
         gpu.stop.set()
-    meta["gpuPeakGB"] = round((gpu.peak - gpu.base) / 1e9, 2)
-    (work_dir("mt", key) / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    # 맥 외에는 자동 측정이 없다(윈도우는 nvidia-smi). 0이 아니라 미측정으로 남긴다.
+    meta["gpuPeakGB"] = round((gpu.peak - gpu.base) / 1e9, 2) if sys.platform == "darwin" else None
+    (tmp / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    shutil.rmtree(final)
+    tmp.rename(final)
 
 
 if __name__ == "__main__":
