@@ -15,6 +15,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 빌드 CI(.github/workflows/build.yml): 맥·윈도우에서 `./gradlew build`
 - Project 모델과 project.json 저장/로드(`koja.core`), 단위 테스트(JUnit). JSON은 Jackson 3(D-027)
 - 검수 화면(더미 데이터): 영상 + 행 표, 행 클릭 → 영상 이동, 한국어·일본어 편집 후 저장, 파일 메뉴(열기·더미 프로젝트 만들기·저장). 재생 영상 규칙 D-028, `javafx-media` 추가
+- 가져오기(파일 메뉴): ffmpeg로 `audio.wav`(16kHz 모노)·`proxy.mp4`(720p H.264, 1초 키프레임) 생성, 진행률·취소·오류 표시, 빈 project.json 생성 후 검수 화면 열기(`koja.media`, `koja.runtime`). ffmpeg 방침 D-037, H.264 인코더 D-038
 
 ### 변경
 - 라이선스를 두지 않기로 함(개인용, D-029). D-021(보류)을 대체

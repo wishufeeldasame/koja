@@ -6,6 +6,8 @@ import java.nio.file.Path;
 /** 프로젝트 폴더(project.json이 있는 폴더) 안의 파일 위치. */
 public final class ProjectFiles {
     public static final String PROXY = "proxy.mp4";
+    /** STT 입력(16kHz 모노). */
+    public static final String AUDIO = "audio.wav";
 
     private ProjectFiles() {}
 
