@@ -69,7 +69,8 @@ tasks.register<Exec>("jpackage") {
     val ffmpegDir = layout.buildDirectory.dir("ffmpeg").get().asFile
 
     doFirst {
-        if (!ffmpegDir.isDirectory) {
+        val exe = if (windows) "ffmpeg.exe" else "ffmpeg"
+        if (!ffmpegDir.resolve(exe).isFile || !ffmpegDir.resolve("NOTICE.txt").isFile) {
             throw GradleException("번들 ffmpeg가 없다: ${ffmpegDir}. 먼저 scripts/bundle_ffmpeg.sh를 실행한다")
         }
         delete(outDir)

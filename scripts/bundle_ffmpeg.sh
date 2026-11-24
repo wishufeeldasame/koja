@@ -3,6 +3,7 @@
 #   윈도우(Git Bash): BtbN win64-lgpl 월말 빌드를 받는다.
 #   맥: FFmpeg 소스 릴리스를 LGPL 옵션으로 빌드한다.
 # 둘 다 SHA-256을 확인한다. OUT의 NOTICE.txt가 같으면 받기·빌드를 건너뛰고 검사만 한다.
+# 새로 만들 때는 임시 폴더에서 만들고 검사를 통과한 뒤에만 OUT을 바꾼다.
 set -euo pipefail
 
 OUT="${1:-app/build/ffmpeg}"
@@ -15,6 +16,11 @@ WIN_TAG=autobuild-2026-10-31-12-59
 WIN_NAME=ffmpeg-n9.0.2-39-g7adfbe40dc-win64-lgpl-9.0
 WIN_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/$WIN_TAG/$WIN_NAME.zip"
 WIN_SHA256=9d37c564e0d01c18cde184a079fa6ef04d7d2783ada41da81d04165cc8f1a650
+WIN_FFMPEG_COMMIT=7adfbe40dc # WIN_NAME의 g7adfbe40dc
+WIN_SCRIPTS_COMMIT=5031c6f1082414e53688d39e521849905071070d # WIN_TAG 시점의 BtbN 빌드 스크립트
+
+# JDK 25 런타임(minos 11)보다 높지만 VideoToolbox 일부 API가 13부터라 13으로 둔다.
+MACOS_MIN=13.0
 
 case "$(uname -s)" in
   Darwin) os=mac; exe=ffmpeg; encoders=(h264_videotoolbox) ;;
@@ -37,45 +43,54 @@ download() { # url sha256 dest
 }
 
 if [ "$os" = mac ]; then
-  notice="FFmpeg $FFMPEG_VERSION (LGPL 2.1 이상), koja CI에서 소스로 빌드
+  notice="FFmpeg $FFMPEG_VERSION (LGPL 2.1 이상), koja CI에서 소스로 빌드(macOS $MACOS_MIN 이상)
 소스: $SRC_URL
 SHA-256: $SRC_SHA256
+빌드 방법: https://github.com/wishufeeldasame/koja/blob/develop/scripts/bundle_ffmpeg.sh
 라이선스 전문: COPYING.LGPLv2.1"
 else
-  notice="FFmpeg $WIN_NAME (LGPL 2.1 이상), BtbN/FFmpeg-Builds 정적 빌드
+  notice="FFmpeg $WIN_NAME (LGPL 3 이상, --enable-version3), BtbN/FFmpeg-Builds 정적 빌드
 빌드: https://github.com/BtbN/FFmpeg-Builds/releases/tag/$WIN_TAG
-빌드 스크립트·소스: https://github.com/BtbN/FFmpeg-Builds , https://ffmpeg.org/download.html
+FFmpeg 소스: https://github.com/FFmpeg/FFmpeg/tree/$WIN_FFMPEG_COMMIT
+빌드 스크립트(함께 링크된 라이브러리 포함): https://github.com/BtbN/FFmpeg-Builds/tree/$WIN_SCRIPTS_COMMIT
 SHA-256: $WIN_SHA256
 라이선스 전문: LICENSE.txt"
 fi
 
+stage="$OUT"
 if [ -f "$OUT/$exe" ] && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null)" = "$notice" ]; then
   echo "이미 있음: $OUT/$exe"
 else
+  # 이 스크립트가 만든 폴더(NOTICE.txt 있음)이거나 빈 폴더일 때만 덮어쓴다.
+  if [ -d "$OUT" ] && [ ! -f "$OUT/NOTICE.txt" ] && [ -n "$(ls -A "$OUT")" ]; then
+    echo "이 스크립트가 만든 폴더가 아니라서 덮어쓰지 않는다: $OUT" >&2
+    exit 1
+  fi
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT
-  rm -rf "$OUT"
-  mkdir -p "$OUT"
+  stage="$work/out"
+  mkdir -p "$stage"
   if [ "$os" = mac ]; then
     download "$SRC_URL" "$SRC_SHA256" "$work/src.tar.xz"
     tar -xJf "$work/src.tar.xz" -C "$work"
     src="$work/ffmpeg-$FFMPEG_VERSION"
     # --disable-autodetect: 빌드 PC의 Homebrew 라이브러리(SDL, lzma 등)가 링크되면 다른 맥에서 안 돈다.
-    (cd "$src" && ./configure --disable-gpl --disable-nonfree --disable-autodetect \
+    (cd "$src" && ./configure --extra-cflags="-mmacosx-version-min=$MACOS_MIN" \
+      --extra-ldflags="-mmacosx-version-min=$MACOS_MIN" --disable-gpl --disable-nonfree --disable-autodetect \
       --enable-videotoolbox --enable-audiotoolbox --enable-zlib \
       --disable-ffplay --disable-ffprobe --disable-doc --disable-debug \
       && make -j"$(sysctl -n hw.ncpu)")
-    cp "$src/ffmpeg" "$OUT/ffmpeg"
-    cp "$src/COPYING.LGPLv2.1" "$OUT/"
+    cp "$src/ffmpeg" "$stage/ffmpeg"
+    cp "$src/COPYING.LGPLv2.1" "$stage/"
   else
     download "$WIN_URL" "$WIN_SHA256" "$work/ffmpeg.zip"
-    unzip -q -j "$work/ffmpeg.zip" "$WIN_NAME/bin/ffmpeg.exe" "$WIN_NAME/LICENSE.txt" -d "$OUT"
+    unzip -q -j "$work/ffmpeg.zip" "$WIN_NAME/bin/ffmpeg.exe" "$WIN_NAME/LICENSE.txt" -d "$stage"
   fi
-  printf '%s\n' "$notice" > "$OUT/NOTICE.txt"
+  printf '%s\n' "$notice" > "$stage/NOTICE.txt"
 fi
 
 # 검사: GPL·nonfree가 아니고, 앱이 쓰는 H.264 인코더(D-038)가 들어 있어야 한다.
-bin="$OUT/$exe"
+bin="$stage/$exe"
 config=$("$bin" -hide_banner -buildconf)
 if grep -qE -- '--enable-(gpl|nonfree)' <<< "$config"; then
   echo "GPL 또는 nonfree 빌드다" >&2
@@ -92,5 +107,14 @@ if [ "$os" = mac ] && grep -qE '/(opt/homebrew|usr/local)/' <<< "$(otool -L "$bi
   otool -L "$bin" >&2
   exit 1
 fi
+if [ "$os" = mac ]; then
+  minos=$(vtool -show-build "$bin" | awk '/minos/ {print $2}')
+  [ "$minos" = "$MACOS_MIN" ] || { echo "최소 macOS가 $MACOS_MIN이 아니다: $minos" >&2; exit 1; }
+fi
 "$bin" -hide_banner -version | head -1
-echo "검사 통과: ${encoders[*]}"
+if [ "$stage" != "$OUT" ]; then
+  rm -rf "$OUT"
+  mkdir -p "$(dirname "$OUT")"
+  mv "$stage" "$OUT"
+fi
+echo "검사 통과: ${encoders[*]} → $OUT"
