@@ -109,10 +109,11 @@ python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본�
 ./gradlew run        # 앱 실행
 ./gradlew test       # 테스트 (ffmpeg가 PATH에 없으면 가져오기 테스트는 건너뜀)
 ./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
-./gradlew jpackage   # (M1 예정) 현재 OS용 설치파일
+./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3
 ```
 
 - 윈도우에서는 `gradlew.bat`을 쓴다.
+- 윈도우에서 `.msi`를 직접 만들려면 [WiX Toolset](https://wixtoolset.org/)이 설치되어 있고 PATH에 있어야 한다(jpackage가 요구). 맥 `.dmg`는 추가 도구가 필요 없다.
 - JDK 25가 없어도 된다. Gradle 툴체인이 처음 빌드할 때 받아 `~/.gradle/jdks`에 둔다. Gradle을 실행할 JDK(17 이상)는 있어야 한다.
 
 - 새 로직(파서, 검증기, 시간 변환, 행 묶기)에는 작은 단위 테스트를 붙인다.

@@ -62,6 +62,8 @@ JavaFX 앱
 ./gradlew run
 ```
 
+설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
+
 가져오기에는 ffmpeg가 필요하다. 개발 중에는 `PATH`의 `ffmpeg`를 쓰고, 다른 것을 쓰려면 환경 변수 `KOJA_FFMPEG`에 경로를 준다. 설치판에는 LGPL 빌드를 넣을 예정이다(D-037).
 
 JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온다(인터넷 연결 필요). 나머지 명령은 [AGENTS.md](AGENTS.md#빌드실행테스트).

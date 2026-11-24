@@ -1,4 +1,4 @@
-# 맥·윈도우에서 Gradle 빌드와 테스트 (docs/설계.md 8장 M1)
+# 맥·윈도우에서 Gradle 빌드·테스트, 설치파일(.dmg/.msi) 생성 (docs/설계.md 8장 M1)
 name: 빌드
 
 on:
@@ -32,3 +32,16 @@ jobs:
       - name: 빌드·테스트
         shell: bash # 윈도우에서도 같은 gradlew 스크립트를 쓴다(Git Bash)
         run: ./gradlew build --console=plain
+
+      # 설치파일은 실행 아티팩트로만 올린다. Releases에는 올리지 않는다(D-024).
+      - name: 설치파일 만들기
+        shell: bash
+        # 윈도우 MSI는 버전이 같으면 같은 제품으로 보고 덮어 설치하지 않는다. 실행마다 버전을 올린다.
+        run: ./gradlew jpackage -PappVersion=1.0.${{ github.run_number }} --console=plain
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: koja-${{ runner.os }}
+          path: app/build/jpackage/*
+          if-no-files-found: error
+          retention-days: 14
