@@ -62,6 +62,8 @@ JavaFX 앱
 ./gradlew run
 ```
 
+설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
+
 JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온다(인터넷 연결 필요). 나머지 명령은 [AGENTS.md](AGENTS.md#빌드실행테스트).
 
 작업 규칙: [AGENTS.md](AGENTS.md). Claude Code, Codex, OpenCode/oh-my-opencode, Antigravity 모두 이 파일을 읽는다.
