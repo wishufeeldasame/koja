@@ -3,7 +3,6 @@ module koja {
     requires javafx.controls;
     requires javafx.media;
     requires tools.jackson.databind;
-    requires java.net.http;
     requires jdk.httpserver;
 
     exports koja.ui to javafx.graphics;
