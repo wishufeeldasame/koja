@@ -68,7 +68,7 @@ poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사�
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore), stt.json·diar.json (StageStore)
   src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 순차 파이프라인 (Pipeline)
   src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
-  src/main/java/koja/runtime  ffmpeg 위치, OS별 H.264 인코더
+  src/main/java/koja/runtime  ffmpeg 위치·인코더(Ffmpeg), 데이터·모델 경로(AppPaths), 모델 다운로드(ModelStore), 로컬 HTTP 서버(LocalServer)
   src/test/java/           JUnit 테스트
 ```
 
