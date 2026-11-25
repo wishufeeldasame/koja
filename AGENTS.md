@@ -26,7 +26,7 @@
 
 ## 절대 규칙
 
-1. **타임라인과 한국어 원문은 STT 결과에서만 나온다.** LLM 출력에 시간·원문 필드를 두지 않는다. LLM은 STT 구간 ID만 참조하고, 결과는 코드로 검증한다(모든 구간 ID가 행 또는 무시 목록에 순서대로 한 번씩 쓰였는지). 인터뷰 영상에서는 질문자·답변자 발언만 행으로 만들고, 번역가 발언과 관계자 잡담은 무시 목록에 넣는다(D-031).
+1. **타임라인과 한국어 원문은 STT 결과에서만 나온다.** LLM 출력에 시간·원문 필드를 두지 않는다. LLM은 STT 구간 ID만 참조하고, 결과는 코드로 검증한다(모든 구간 ID가 행 또는 무시 목록에 순서대로 한 번씩 쓰였는지. 한국어 후보가 있는 2회 방식 구간만 일본어 질문 행과 한국어 행에 한 번씩 함께 쓸 수 있다, D-045). 인터뷰 영상에서는 질문자·답변자 발언만 행으로 만들고, 번역가 발언과 관계자 잡담은 무시 목록에 넣는다(D-031).
 2. **모르면 비우고 표시한다.** 화자 이름이나 들리지 않는 내용을 추측해 채우지 않는다. `SPEAKER_UNSURE` / `TEXT_UNSURE` 플래그를 단다.
 3. **이 저장소는 공개(Public)다. 비공개 자료는 커밋하지 않는다.**
    - 비공개 문서는 `docs/private/`, 샘플 영상·정답 시트는 `samples/`, 평가 결과는 `eval/results/`에 둔다. 셋 다 `.gitignore` 대상이다.
@@ -38,8 +38,8 @@
 ## 기술스택
 
 - Java 25 LTS, JavaFX, Gradle, jpackage
-- 내장 바이너리: ffmpeg(LGPL 빌드), llama.cpp `llama-server`(Win CUDA / Mac Metal)
-- 로컬 STT·화자 구분: **M0 PoC로 결정 전**. 후보는 sherpa-onnx(Java) 또는 Python 워커
+- 내장 바이너리: ffmpeg(LGPL 빌드), llama.cpp `llama-server`, whisper.cpp `whisper-server`(둘 다 Win CUDA / Mac Metal)
+- 로컬 STT: whisper-server(large-v3-turbo), 2회 방식(D-039, D-040). VAD·화자 구분: sherpa-onnx Java(CPU)
 - Google Sheets API v4 + OAuth Desktop(루프백 + PKCE), 스코프 `drive.file`
 
 새 의존성은 표준 라이브러리나 이미 있는 의존성으로 안 될 때만 추가하고, 이유를 커밋 메시지에 쓴다.
@@ -64,6 +64,7 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   build.gradle.kts
   src/main/java/module-info.java
   src/main/java/koja/ui    화면 (진입점 KojaApp)
+poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사용법 poc/README.md, 윈도우 측정 poc/WINDOWS.md
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore)
   src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
   src/main/java/koja/runtime  ffmpeg 위치, OS별 H.264 인코더
@@ -79,7 +80,6 @@ app/src/main/java/koja/
   media    프레임 추출 등 ffmpeg 호출 추가
   runtime  내장 바이너리(번들 ffmpeg 포함)·모델 관리
   export   Google Sheets
-poc/            M0 비교 실험 스크립트 (Python, 앱과 분리)
 eval/           평가 스크립트와 결과 (results/ 아래 날짜별)
 samples/        샘플 영상·정답 시트, README.md(외부 전송 허용 표) (커밋 금지)
 ```

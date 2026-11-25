@@ -18,9 +18,17 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 설치파일 생성: `./gradlew jpackage`(맥 .dmg / 윈도우 .msi), CI가 OS별로 만들어 아티팩트로 올림(14일 보관, D-035)
 - 가져오기(파일 메뉴): ffmpeg로 `audio.wav`(16kHz 모노)·`proxy.mp4`(720p H.264, 1초 키프레임) 생성, 진행률·취소·오류 표시, 빈 project.json 생성 후 검수 화면 열기(`koja.media`, `koja.runtime`). ffmpeg 방침 D-037, H.264 인코더 D-038
 - 설치파일에 LGPL ffmpeg 9.0.2 번들: `scripts/bundle_ffmpeg.sh`(윈도우 BtbN 월말 빌드 다운로드, 맥 소스 빌드, SHA-256·GPL·인코더 검사), CI 캐시와 설치파일 안 ffmpeg 확인, 앱은 번들 ffmpeg를 먼저 찾음(D-042)
+- M0 PoC 스크립트(`poc/`, Python + uv): WAV 추출, 정답 시트 파싱, 공통 VAD, STT 5종·화자 구분 3종 실행, 2회 방식 병합, 정답 시트 비교 평가, 윈도우 측정 안내(poc/WINDOWS.md)
+- 번역 모델 비교 스크립트(`poc/translate.py`, `poc/mt_eval.py`): llama-server로 시트 한국어 번역, 행 ID 대응 검증, chrF·영문 용어·처리 시간·GPU 메모리. 설계 7.2에 수치, 윈도우 측정 절차 추가. 결정 D-041(로컬 번역 모델, 보류)
+- 윈도우 담당자 PC용 테스트 묶음(`poc/windows/`, `poc/win_setup.py`, `poc/win_run.py`): 더블클릭 설치(uv·CUDA 빌드·모델 자동 다운로드, 이어 받기·sha256 검사) → 11단계 테스트(STT 2회·화자·번역 E4B/26B) → 숫자만 담은 결과 파일. 쉬운 설명서 포함. 의존성 `psutil` 추가(단계별 RAM 측정)
+- 윈도우 실측: 3060 Ti 8GB(STT 2회·화자 구분), 3080 10GB(11단계 전부, 번역 E4B·26B 포함) 수치를 D-039·D-041·설계 7장에 기록. 설계 7.2 맥 chrF 샘플 순서 정정. 결정 D-044(번역 기본 Gemma 4 E4B, 26B-A4B는 선택 설치, D-041 대체) 영상 이름이 PC마다 달라(`C0003.MP4`) 시트를 못 찾던 문제를 고침(시트 클립 → 영상 이름을 `samples/`에서 찾음, 시트 읽기는 재실행마다 다시 함)
+- 구조화 모델 비교 스크립트(`poc/structure.py`, `poc/struct_eval.py`): STT 구간·화자 → llama-server로 rows·무시 목록, 구간 ID 검증·오류 알려 재시도, 문장 조각 분할 선택(`KOJA_SPLIT`). 시트 행 재현율·시간·행 경계·일본어 질문·무시·검증·처리 시간·GPU 메모리. 설계 7.3에 Gemma 4 E4B·Qwen3.5-9B 수치. `translate.Server`에 컨텍스트 길이 인자. 결정 D-045(한국어 후보가 있는 구간은 일본어 질문 행과 한국어 행에 함께 쓸 수 있음, 설계 2장·AGENTS.md 절대 규칙 1·spec-reviewer 보완), D-046(구조화 기본 Gemma 4 E4B, 설계 6장)
+- 설계 4장에 시트 구성(9단계 내보내기): A タイムライン · B 話者 · C 韓国語 · D 日本語 열과 `rows` 필드 대응, 질문·플래그 표시 규칙
+- 결정 D-039(로컬 STT는 whisper.cpp 내장, VAD·화자 구분은 sherpa-onnx), D-040(STT 2회 방식, 행 시각은 단어 시간). 설계 7.1에 PoC 수치 요약
 
 ### 변경
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙
+- 설계 4단계를 "ja 구간 일본어 재전사"에서 "비한국어 구간 한국어 재전사"로, 행 `startMs`를 첫 단어 시간으로 바꿈(D-040). D-006(보류)을 D-039로 대체
 - 라이선스를 두지 않기로 함(개인용, D-029). D-021(보류)을 대체
 - 잡담 구간은 행으로 만들지 않고 무시 목록에 넣도록 절대 규칙 1을 고침(D-030). spec-reviewer 검증 문구도 같이 고침
 - 인터뷰 영상은 질문자·답변자 발언만 행으로 남기고 통역·잡담은 무시(D-031, D-030 대체)
