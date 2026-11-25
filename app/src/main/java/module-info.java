@@ -1,4 +1,5 @@
 module koja {
+    requires java.net.http;
     requires javafx.controls;
     requires javafx.media;
     requires tools.jackson.databind;
