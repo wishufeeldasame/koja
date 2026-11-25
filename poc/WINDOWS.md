@@ -60,8 +60,10 @@ uv run python windows/make_package.py      # → eval/work/dist/koja-windows-tes
 - **윈도우 3060 Ti에서 확인한 것**(1차, 2026-11-24): bat 실행, uv 설치, 다운로드·압축 해제, whisper-server CUDA, sherpa 화자 구분, nvidia-smi·RAM 측정, 결과 파일 작성.
   - 1차에서 정답 비교와 번역이 `FileNotFoundError`로 실패했다. 담당자 PC의 영상 이름이 `C0003.MP4`라 맥 이름(`C0003-002`)을 고정해 둔 시트 해석이 시트 파일을 만들지 못했다. 지금은 시트 클립 번호로 `samples/`의 영상 이름을 찾는다.
   - 결과 파일의 `cuda` 값이 비어 있었다(`nvidia-smi` 머리글에서 CUDA 버전을 못 읽음, 원인 미확인). whisper CUDA 빌드는 VRAM 2GB를 쓰며 돌았으므로 드라이버는 맞다(추정).
+- **윈도우 3080에서 확인한 것**(2026-11-25): 11단계 모두 성공. 번역은 두 모델 모두 1차 설정(`-ngl auto`)으로 돌았다. 26B는 31/31층을 GPU에 올리고 MoE 전문가 일부를 CPU에 뒀다(VRAM 8.1GB, RAM 19.5GB). 수치는 `docs/설계.md` 7장.
+  - 결과 파일의 번역 서버 배치는 앞 16줄만 남겨서 26B의 CUDA 버퍼 줄이 잘렸다.
 - **윈도우에서 아직 확인하지 못한 것**:
-  - `--fit`이 8GB·10GB에서 26B를 어떻게 나누는지, 번역 속도
+  - 8GB(3060 Ti)에서 번역(재지 않기로 함, D-039)
   - 한글 사용자명 경로(묶음을 `C:\koja-test`에 두게 해서 피함)
 
 ## 받은 결과 정리
