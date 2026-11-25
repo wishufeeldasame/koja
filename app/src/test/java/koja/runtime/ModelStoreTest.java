@@ -302,6 +302,122 @@ class ModelStoreTest {
     }
 
     @Test
+    void mismatchedContentLengthClosesBodyAndStoreClosesPromptly(@TempDir Path temp) throws Exception {
+        byte[] payload = sampleBytes(128_000);
+        String expectedSha = sha256(payload);
+        server.createContext("/wrong-size.bin", ex -> serveRange(ex, payload, true));
+
+        // 기본 HttpClient를 소유한 ModelStore로도 본문 누수 없이 즉시 닫혀야 한다.
+        ModelStore store = new ModelStore(temp.resolve("models"));
+        ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
+                "wrong-size.bin", baseUri.resolve("/wrong-size.bin"), payload.length + 100, expectedSha);
+
+        assertThrows(IOException.class, () -> store.ensureDownloaded(spec));
+
+        Thread closer = Thread.ofVirtual().start(store::close);
+        closer.join(2_000);
+        assertFalse(closer.isAlive(), "응답 본문이 닫히지 않아 ModelStore.close()가 반환하지 않았습니다");
+    }
+
+    @Test
+    void concurrentDownloadsOnSameSpecSerializeCleanly(@TempDir Path temp) throws Exception {
+        byte[] payload = sampleBytes(250_000);
+        String expectedSha = sha256(payload);
+        AtomicInteger hits = new AtomicInteger();
+        server.createContext("/shared.bin", ex -> {
+            hits.incrementAndGet();
+            ex.sendResponseHeaders(200, payload.length);
+            try (OutputStream out = ex.getResponseBody()) {
+                int half = payload.length / 2;
+                out.write(payload, 0, half);
+                out.flush();
+                Thread.sleep(150);
+                out.write(payload, half, payload.length - half);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        Path modelsDir = temp.resolve("models");
+        ModelStore store1 = new ModelStore(modelsDir, client);
+        ModelStore store2 = new ModelStore(modelsDir, client);
+        ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
+                "shared.bin", baseUri.resolve("/shared.bin"), payload.length, expectedSha);
+
+        CountDownLatch startGate = new CountDownLatch(1);
+        AtomicReference<Path> r1 = new AtomicReference<>();
+        AtomicReference<Path> r2 = new AtomicReference<>();
+        AtomicReference<Throwable> e1 = new AtomicReference<>();
+        AtomicReference<Throwable> e2 = new AtomicReference<>();
+
+        Thread t1 = Thread.ofVirtual().start(() -> {
+            try {
+                startGate.await();
+                r1.set(store1.ensureDownloaded(spec));
+            } catch (Throwable t) {
+                e1.set(t);
+            }
+        });
+        Thread t2 = Thread.ofVirtual().start(() -> {
+            try {
+                startGate.await();
+                r2.set(store2.ensureDownloaded(spec));
+            } catch (Throwable t) {
+                e2.set(t);
+            }
+        });
+        startGate.countDown();
+        t1.join(10_000);
+        t2.join(10_000);
+
+        assertEquals(null, e1.get());
+        assertEquals(null, e2.get());
+        assertEquals(r1.get(), r2.get());
+        assertArrayEquals(payload, Files.readAllBytes(r1.get()));
+        assertEquals(1, hits.get(), "직렬화된 두 번째 호출은 이미 검증된 파일을 재사용해야 합니다");
+    }
+
+    @Test
+    void stalledBodyReadTimesOutAndPreservesPartForResume(@TempDir Path temp) throws Exception {
+        byte[] payload = sampleBytes(120_000);
+        String expectedSha = sha256(payload);
+        AtomicBoolean stallFirst = new AtomicBoolean(true);
+        CountDownLatch releaseStall = new CountDownLatch(1);
+
+        server.createContext("/stall.bin", ex -> {
+            if (stallFirst.compareAndSet(true, false)) {
+                ex.getResponseHeaders().add("Accept-Ranges", "bytes");
+                ex.sendResponseHeaders(200, payload.length);
+                try (OutputStream out = ex.getResponseBody()) {
+                    out.write(payload, 0, 40_000);
+                    out.flush();
+                    releaseStall.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException | IOException ignored) {
+                    // 클라이언트가 타임아웃으로 연결을 끊는다.
+                }
+                return;
+            }
+            serveRange(ex, payload, true);
+        });
+
+        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofMillis(300));
+        ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
+                "stall.bin", baseUri.resolve("/stall.bin"), payload.length, expectedSha);
+
+        assertThrows(IOException.class, () -> store.ensureDownloaded(spec));
+        releaseStall.countDown();
+
+        Path part = store.partPathOf(spec);
+        assertTrue(Files.isRegularFile(part));
+        long partial = Files.size(part);
+        assertTrue(partial > 0 && partial < payload.length);
+
+        Path completed = store.ensureDownloaded(spec);
+        assertArrayEquals(payload, Files.readAllBytes(completed));
+        assertFalse(Files.exists(part));
+    }
+
+    @Test
     void huggingFaceSpecAndPathValidation() {
         String sha = "A".repeat(64);
         ModelStore.ModelSpec spec = ModelStore.ModelSpec.huggingFace(

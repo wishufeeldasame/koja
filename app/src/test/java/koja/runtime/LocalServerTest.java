@@ -142,6 +142,111 @@ class LocalServerTest {
     }
 
     @Test
+    void startsWithChildBoundPortFromLog() throws Exception {
+        LocalServer server = LocalServer.builder("ephemeral-test", port -> fakeServerCmd("llama-health", port))
+                .portFromLog(line -> {
+                    int idx = line.indexOf("port=");
+                    if (idx < 0) {
+                        return java.util.OptionalInt.empty();
+                    }
+                    String rest = line.substring(idx + "port=".length()).trim();
+                    int sp = rest.indexOf(' ');
+                    return java.util.OptionalInt.of(Integer.parseInt(sp < 0 ? rest : rest.substring(0, sp)));
+                })
+                .healthCheck(LocalServer.HealthCheck.jsonStatusOk("/health"))
+                .startupTimeout(Duration.ofSeconds(15))
+                .pollInterval(Duration.ofMillis(100))
+                .shutdownGracePeriod(Duration.ofSeconds(2))
+                .start();
+
+        try (server) {
+            assertTrue(server.isAlive());
+            assertTrue(server.port() > 0);
+            assertEquals("127.0.0.1", server.baseUri().getHost());
+        }
+        assertFalse(server.isAlive());
+    }
+
+    @Test
+    void rejectsRogueServerOccupyingPreallocatedPort(@TempDir Path temp) throws Exception {
+        com.sun.net.httpserver.HttpServer rogue = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        rogue.createContext("/", ex -> {
+            byte[] ok = "rogue".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, ok.length);
+            try (var out = ex.getResponseBody()) {
+                out.write(ok);
+            }
+        });
+        rogue.start();
+        int roguePort = rogue.getAddress().getPort();
+        Path pidFile = temp.resolve("child.pid");
+        try {
+            LocalServer.Config config = LocalServer.builder("rogue-check", port -> {
+                        List<String> cmd = new java.util.ArrayList<>(fakeServerCmd("hang", port));
+                        cmd.add(pidFile.toString());
+                        return cmd;
+                    })
+                    .healthCheck(LocalServer.HealthCheck.httpOk("/"))
+                    .startupTimeout(Duration.ofMillis(1200))
+                    .pollInterval(Duration.ofMillis(100))
+                    .shutdownGracePeriod(Duration.ofMillis(300))
+                    .build();
+
+            assertThrows(IOException.class, () -> LocalServer.startWithPort(config, roguePort));
+            if (Files.isRegularFile(pidFile)) {
+                long childPid = Long.parseLong(Files.readString(pidFile, StandardCharsets.UTF_8).trim());
+                assertFalse(ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false));
+            }
+        } finally {
+            rogue.stop(0);
+        }
+    }
+
+    @Test
+    void startupTimeoutEnforcedDuringSlowHealthCheck(@TempDir Path temp) throws IOException {
+        Path pidFile = temp.resolve("slow-probe.pid");
+        assertThrows(IOException.class, () ->
+                LocalServer.builder("slow-probe", port -> {
+                            List<String> cmd = new java.util.ArrayList<>(fakeServerCmd("hang", port));
+                            cmd.add(pidFile.toString());
+                            return cmd;
+                        })
+                        .healthCheck((client, uri) -> {
+                            Thread.sleep(600);
+                            return true;
+                        })
+                        .startupTimeout(Duration.ofMillis(150))
+                        .pollInterval(Duration.ofMillis(50))
+                        .shutdownGracePeriod(Duration.ofMillis(300))
+                        .start());
+        if (Files.isRegularFile(pidFile)) {
+            long childPid = Long.parseLong(Files.readString(pidFile, StandardCharsets.UTF_8).trim());
+            assertFalse(ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false));
+        }
+    }
+
+    @Test
+    void startupCrashAfterSpawningChildStillCleansUpGrandchild(@TempDir Path temp) throws IOException {
+        Path childPidFile = temp.resolve("grandchild.pid");
+        assertThrows(IOException.class, () ->
+                LocalServer.builder("crash-with-child", port -> {
+                            List<String> cmd = new java.util.ArrayList<>(fakeServerCmd("child-then-crash", port));
+                            cmd.add(childPidFile.toString());
+                            return cmd;
+                        })
+                        .healthCheck(LocalServer.HealthCheck.httpOk("/"))
+                        .startupTimeout(Duration.ofSeconds(10))
+                        .pollInterval(Duration.ofMillis(50))
+                        .shutdownGracePeriod(Duration.ofMillis(300))
+                        .start());
+        assertTrue(Files.isRegularFile(childPidFile), "손자 프로세스 PID 기록이 있어야 합니다");
+        long grandchildPid = Long.parseLong(Files.readString(childPidFile, StandardCharsets.UTF_8).trim());
+        assertFalse(ProcessHandle.of(grandchildPid).map(ProcessHandle::isAlive).orElse(false),
+                "부모 크래시 후 고아가 된 손자 프로세스(PID " + grandchildPid + ")가 종료되지 않았습니다");
+    }
+
+    @Test
     void allocateFreePortReturnsValidPort() throws IOException {
         int port = LocalServer.allocateFreePort();
         assertTrue(port > 0 && port <= 65535);

@@ -54,14 +54,25 @@ public final class FakeLocalServer {
         }
 
         Process child = null;
-        if ("with-child".equals(mode)) {
+        if ("with-child".equals(mode) || "child-then-crash".equals(mode)) {
             String javaBin = Path.of(System.getProperty("java.home"), "bin", AppPaths.executableName("java")).toString();
             child = new ProcessBuilder(List.of(
                     javaBin, "-cp", System.getProperty("java.class.path"),
                     FakeLocalServer.class.getName(), "sleeper", "0"))
                     .start();
+            if ("child-then-crash".equals(mode) && args.length > 2) {
+                Path pidPath = Path.of(args[2]);
+                Path tmp = pidPath.resolveSibling(pidPath.getFileName() + ".tmp");
+                java.nio.file.Files.writeString(tmp, Long.toString(child.pid()), StandardCharsets.UTF_8);
+                java.nio.file.Files.move(tmp, pidPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             System.out.println("CHILD_PID=" + child.pid());
             System.out.flush();
+            if ("child-then-crash".equals(mode)) {
+                Thread.sleep(400);
+                System.exit(42);
+                return;
+            }
         }
 
         if ("slow-start".equals(mode)) {
@@ -70,6 +81,7 @@ public final class FakeLocalServer {
 
         AtomicInteger healthCalls = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+        int actualPort = server.getAddress().getPort();
         server.createContext("/", ex -> {
             byte[] body = "ok".getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(200, body.length);
@@ -90,7 +102,7 @@ public final class FakeLocalServer {
             }
         });
         server.start();
-        System.out.println("SERVER_READY port=" + port + " 한글로그");
+        System.out.println("SERVER_READY port=" + actualPort + " 한글로그");
         System.out.flush();
 
         // 종료 신호가 올 때까지 유지한다.

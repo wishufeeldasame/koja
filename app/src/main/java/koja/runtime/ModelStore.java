@@ -9,6 +9,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -22,21 +24,30 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * 로컬 모델 파일 저장·다운로드·무결성 검증(D-050).
  * {@code .part} 임시 파일에 받아 Range 이어 받기와 취소를 지원하고, SHA-256 검증 뒤 원자적으로 옮긴다.
+ * 같은 경로에 대한 동시 다운로드는 프로세스 내부·외부 파일 잠금({@code .lock})으로 직렬화한다.
  */
 public final class ModelStore implements AutoCloseable {
     private static final int BUFFER_SIZE = 64 * 1024;
     private static final int HASH_BUFFER_SIZE = 1024 * 1024;
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(60);
+    private static final long LOCK_POLL_MILLIS = 50L;
     private static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-fA-F]{64}$");
     private static final Pattern CONTENT_RANGE_PATTERN = Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)$");
+    private static final ConcurrentHashMap<Path, ReentrantLock> IN_PROCESS_LOCKS = new ConcurrentHashMap<>();
 
     /** 다운로드할 모델 명세. {@code expectedSize}가 -1이면 크기를 알 수 없는 모델로 처리한다. */
     public record ModelSpec(String relativePath, URI uri, long expectedSize, String sha256) {
@@ -172,22 +183,32 @@ public final class ModelStore implements AutoCloseable {
 
     private final Path modelsDir;
     private final HttpClient httpClient;
+    private final Duration readTimeout;
     private final boolean ownsClient;
 
     public ModelStore(Path modelsDir) {
         this(modelsDir, HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                .build(), true);
+                .build(), DEFAULT_READ_TIMEOUT, true);
     }
 
     public ModelStore(Path modelsDir, HttpClient httpClient) {
-        this(modelsDir, Objects.requireNonNull(httpClient, "httpClient"), false);
+        this(modelsDir, httpClient, DEFAULT_READ_TIMEOUT);
     }
 
-    private ModelStore(Path modelsDir, HttpClient httpClient, boolean ownsClient) {
+    public ModelStore(Path modelsDir, HttpClient httpClient, Duration readTimeout) {
+        this(modelsDir, Objects.requireNonNull(httpClient, "httpClient"), readTimeout, false);
+    }
+
+    private ModelStore(Path modelsDir, HttpClient httpClient, Duration readTimeout, boolean ownsClient) {
         this.modelsDir = Objects.requireNonNull(modelsDir, "modelsDir").toAbsolutePath().normalize();
         this.httpClient = httpClient;
+        Objects.requireNonNull(readTimeout, "readTimeout");
+        if (readTimeout.isNegative() || readTimeout.isZero()) {
+            throw new IllegalArgumentException("readTimeout은 양수여야 합니다");
+        }
+        this.readTimeout = readTimeout;
         this.ownsClient = ownsClient;
     }
 
@@ -213,6 +234,10 @@ public final class ModelStore implements AutoCloseable {
     public Path partPathOf(ModelSpec spec) {
         Path dest = pathOf(spec);
         return dest.resolveSibling(dest.getFileName().toString() + ".part");
+    }
+
+    private static Path lockPathOf(Path dest) {
+        return dest.resolveSibling(dest.getFileName().toString() + ".lock");
     }
 
     /** 파일 존재 여부와 크기(지정된 경우)만 빠르게 확인한다. 해시는 계산하지 않는다. */
@@ -251,15 +276,25 @@ public final class ModelStore implements AutoCloseable {
 
         Path dest = pathOf(spec);
         Path part = partPathOf(spec);
+        Files.createDirectories(dest.getParent());
 
+        try (PathLock ignored = acquirePathLock(dest, cancelToken)) {
+            return ensureDownloadedLocked(spec, dest, part, listener, cancelToken);
+        }
+    }
+
+    private Path ensureDownloadedLocked(
+            ModelSpec spec,
+            Path dest,
+            Path part,
+            ProgressListener listener,
+            CancelToken cancelToken) throws IOException {
         if (verifyFile(dest, spec, cancelToken)) {
             long size = Files.size(dest);
             Files.deleteIfExists(part);
             notifyProgress(listener, size, size);
             return dest;
         }
-
-        Files.createDirectories(dest.getParent());
 
         long existing = Files.isRegularFile(part) ? Files.size(part) : 0L;
         if (spec.expectedSize() >= 0 && existing > spec.expectedSize()) {
@@ -270,6 +305,9 @@ public final class ModelStore implements AutoCloseable {
         boolean skippedNetwork = spec.expectedSize() >= 0 && existing == spec.expectedSize();
         if (!skippedNetwork) {
             downloadToPart(spec, part, existing, listener, cancelToken);
+        } else {
+            // 직전 실행이 마지막 바이트 기록 후 force 전에 취소됐을 수 있으므로 이동 전 디스크에 반영한다.
+            syncFile(part);
         }
 
         checkCancelled(cancelToken);
@@ -308,6 +346,12 @@ public final class ModelStore implements AutoCloseable {
         return HexFormat.of().formatHex(digest.digest());
     }
 
+    private static void syncFile(Path file) throws IOException {
+        try (FileChannel ch = FileChannel.open(file, StandardOpenOption.WRITE)) {
+            ch.force(true);
+        }
+    }
+
     private static boolean verifyFile(Path file, ModelSpec spec, CancelToken cancelToken) throws IOException {
         if (!Files.isRegularFile(file)) {
             return false;
@@ -327,49 +371,51 @@ public final class ModelStore implements AutoCloseable {
         long offset = initialOffset;
         for (int attempt = 0; attempt < 2; attempt++) {
             checkCancelled(cancelToken);
-            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder(spec.uri()).GET();
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder(spec.uri())
+                    .timeout(readTimeout)
+                    .GET();
             if (offset > 0) {
                 reqBuilder.header("Range", "bytes=" + offset + "-");
             }
             HttpResponse<InputStream> response = sendCancellable(reqBuilder.build(), cancelToken);
             int status = response.statusCode();
 
-            if (status == 416 && offset > 0 && attempt == 0) {
-                closeQuietly(response.body());
-                Files.deleteIfExists(part);
-                offset = 0L;
-                continue;
-            }
-
-            if (status != 200 && status != 206) {
-                closeQuietly(response.body());
-                throw new IOException("모델 다운로드 실패 (HTTP " + status + "): " + spec.uri());
-            }
-
-            boolean resuming = status == 206;
-            long writeOffset;
+            long downloaded;
             long totalBytes;
-            if (resuming) {
-                if (offset <= 0) {
-                    closeQuietly(response.body());
-                    throw new IOException("Range 요청 없이 HTTP 206 응답을 받았습니다: " + spec.uri());
+            // 어떤 검증 예외가 나더라도 응답 본문 스트림을 반드시 닫아야 HttpClient.close()가 막히지 않는다.
+            try (InputStream body = response.body()) {
+                if (status == 416 && offset > 0 && attempt == 0) {
+                    Files.deleteIfExists(part);
+                    offset = 0L;
+                    continue;
                 }
-                ContentRange range = parseContentRange(response.headers().firstValue("Content-Range").orElse(null));
-                if (range == null || range.start() != offset) {
-                    closeQuietly(response.body());
-                    throw new IOException("서버 Content-Range가 요청 오프셋(" + offset + ")과 다릅니다: "
-                            + response.headers().firstValue("Content-Range").orElse("(없음)"));
-                }
-                writeOffset = offset;
-                totalBytes = resolveTotalBytes(spec, range.total(), response.headers().firstValueAsLong("Content-Length"),
-                        writeOffset);
-            } else {
-                writeOffset = 0L;
-                totalBytes = resolveTotalBytes(spec, -1L, response.headers().firstValueAsLong("Content-Length"), 0L);
-            }
 
-            long downloaded = streamResponseToPart(spec, response.body(), part, writeOffset, totalBytes,
-                    listener, cancelToken);
+                if (status != 200 && status != 206) {
+                    throw new IOException("모델 다운로드 실패 (HTTP " + status + "): " + spec.uri());
+                }
+
+                boolean resuming = status == 206;
+                long writeOffset;
+                if (resuming) {
+                    if (offset <= 0) {
+                        throw new IOException("Range 요청 없이 HTTP 206 응답을 받았습니다: " + spec.uri());
+                    }
+                    ContentRange range = parseContentRange(response.headers().firstValue("Content-Range").orElse(null));
+                    if (range == null || range.start() != offset) {
+                        throw new IOException("서버 Content-Range가 요청 오프셋(" + offset + ")과 다릅니다: "
+                                + response.headers().firstValue("Content-Range").orElse("(없음)"));
+                    }
+                    writeOffset = offset;
+                    totalBytes = resolveTotalBytes(spec, range.total(),
+                            response.headers().firstValueAsLong("Content-Length"), writeOffset);
+                } else {
+                    writeOffset = 0L;
+                    totalBytes = resolveTotalBytes(spec, -1L,
+                            response.headers().firstValueAsLong("Content-Length"), 0L);
+                }
+
+                downloaded = streamResponseToPart(spec, body, part, writeOffset, totalBytes, listener, cancelToken);
+            }
 
             // 스트림과 파일 채널을 모두 닫은 뒤에 삭제·검증한다(윈도우 파일 잠금 방지).
             if (spec.expectedSize() >= 0 && downloaded > spec.expectedSize()) {
@@ -398,11 +444,34 @@ public final class ModelStore implements AutoCloseable {
             long totalBytes,
             ProgressListener listener,
             CancelToken cancelToken) throws IOException {
+        AtomicBoolean stalled = new AtomicBoolean();
+        AtomicBoolean reading = new AtomicBoolean(true);
+        AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
+        long timeoutNanos = readTimeout.toNanos();
+        long checkMillis = Math.max(10L, Math.min(1_000L, readTimeout.toMillis() / 4));
+
+        Thread watchdog = Thread.ofVirtual()
+                .name("koja-download-watchdog")
+                .start(() -> {
+                    while (reading.get()) {
+                        if (System.nanoTime() - lastActivityNanos.get() >= timeoutNanos) {
+                            stalled.set(true);
+                            closeQuietly(body);
+                            return;
+                        }
+                        try {
+                            Thread.sleep(checkMillis);
+                        } catch (InterruptedException e) {
+                            return;
+                        }
+                    }
+                });
+
         Runnable abort = () -> closeQuietly(body);
         if (cancelToken != null) {
             cancelToken.setActiveAbort(abort);
         }
-        try (InputStream in = body) {
+        try {
             checkCancelled(cancelToken);
             try (FileChannel channel = openPartChannel(part, writeOffset)) {
                 long downloaded = writeOffset;
@@ -411,7 +480,11 @@ public final class ModelStore implements AutoCloseable {
                 byte[] buffer = new byte[BUFFER_SIZE];
                 while (true) {
                     checkCancelled(cancelToken);
-                    int n = in.read(buffer);
+                    int n = body.read(buffer);
+                    lastActivityNanos.set(System.nanoTime());
+                    if (stalled.get()) {
+                        throw new IOException("모델 다운로드 본문 수신 시간 초과(" + readTimeout + "): " + spec.relativePath());
+                    }
                     if (n < 0) {
                         break;
                     }
@@ -434,8 +507,13 @@ public final class ModelStore implements AutoCloseable {
             if (isCancelled(cancelToken)) {
                 throw new CancellationException("모델 다운로드가 취소되었습니다");
             }
+            if (stalled.get()) {
+                throw new IOException("모델 다운로드 본문 수신 시간 초과(" + readTimeout + "): " + spec.relativePath(), e);
+            }
             throw e;
         } finally {
+            reading.set(false);
+            watchdog.interrupt();
             if (cancelToken != null) {
                 cancelToken.clearActiveAbort(abort);
             }
@@ -450,11 +528,17 @@ public final class ModelStore implements AutoCloseable {
             cancelToken.setActiveAbort(abort);
         }
         try {
-            return future.get();
+            return future.get(readTimeout.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            closeResponseAsyncIfCompleted(future);
+            throw new IOException("모델 다운로드 응답 헤더 시간 초과(" + readTimeout + "): " + request.uri(), e);
         } catch (CancellationException e) {
+            closeResponseAsyncIfCompleted(future);
             throw new CancellationException("모델 다운로드가 취소되었습니다");
         } catch (InterruptedException e) {
             future.cancel(true);
+            closeResponseAsyncIfCompleted(future);
             Thread.currentThread().interrupt();
             throw new CancellationException("모델 다운로드가 중단되었습니다");
         } catch (ExecutionException e) {
@@ -469,6 +553,109 @@ public final class ModelStore implements AutoCloseable {
         } finally {
             if (cancelToken != null) {
                 cancelToken.clearActiveAbort(abort);
+            }
+        }
+    }
+
+    private static void closeResponseAsyncIfCompleted(CompletableFuture<HttpResponse<InputStream>> future) {
+        future.whenComplete((res, err) -> {
+            if (res != null) {
+                closeQuietly(res.body());
+            }
+        });
+    }
+
+    /** 같은 JVM 안의 스레드 간 잠금 + 다른 프로세스 간 OS 파일 잠금을 순서대로 잡는다. */
+    private static PathLock acquirePathLock(Path dest, CancelToken cancelToken) throws IOException {
+        Path key = dest.toAbsolutePath().normalize();
+        ReentrantLock threadLock = IN_PROCESS_LOCKS.computeIfAbsent(key, ignored -> new ReentrantLock());
+        while (true) {
+            checkCancelled(cancelToken);
+            try {
+                if (threadLock.tryLock(LOCK_POLL_MILLIS, TimeUnit.MILLISECONDS)) {
+                    break;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("모델 잠금 대기가 중단되었습니다");
+            }
+        }
+
+        FileChannel lockChannel = null;
+        FileLock fileLock = null;
+        try {
+            Path lockFile = lockPathOf(dest);
+            lockChannel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            while (true) {
+                checkCancelled(cancelToken);
+                try {
+                    fileLock = lockChannel.tryLock();
+                    if (fileLock != null) {
+                        return new PathLock(threadLock, lockChannel, fileLock);
+                    }
+                } catch (OverlappingFileLockException ignored) {
+                    // 다른 경로 표기로 열린 동일 파일 잠금이 풀릴 때까지 잠시 대기한다.
+                }
+                try {
+                    Thread.sleep(LOCK_POLL_MILLIS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new CancellationException("모델 잠금 대기가 중단되었습니다");
+                }
+            }
+        } catch (Throwable t) {
+            if (fileLock != null) {
+                try {
+                    fileLock.release();
+                } catch (IOException ignored) {
+                    // 정리 예외 무시
+                }
+            }
+            if (lockChannel != null) {
+                try {
+                    lockChannel.close();
+                } catch (IOException ignored) {
+                    // 정리 예외 무시
+                }
+            }
+            threadLock.unlock();
+            throw t;
+        }
+    }
+
+    private static final class PathLock implements AutoCloseable {
+        private final ReentrantLock threadLock;
+        private final FileChannel channel;
+        private final FileLock fileLock;
+
+        PathLock(ReentrantLock threadLock, FileChannel channel, FileLock fileLock) {
+            this.threadLock = threadLock;
+            this.channel = channel;
+            this.fileLock = fileLock;
+        }
+
+        @Override
+        public void close() throws IOException {
+            IOException error = null;
+            try {
+                fileLock.release();
+            } catch (IOException e) {
+                error = e;
+            } finally {
+                try {
+                    channel.close();
+                } catch (IOException e) {
+                    if (error == null) {
+                        error = e;
+                    } else {
+                        error.addSuppressed(e);
+                    }
+                } finally {
+                    threadLock.unlock();
+                }
+            }
+            if (error != null) {
+                throw error;
             }
         }
     }
