@@ -7,8 +7,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -24,7 +27,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public final class GoogleAuth {
     public static final String SCOPE = "https://www.googleapis.com/auth/drive.file";
-    static final String REFRESH_TOKEN = "google-refresh-token";
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     /**
@@ -49,6 +51,7 @@ public final class GoogleAuth {
 
     private final Client client;
     private final SecretStore secrets;
+    private final String refreshKey;
     private final HttpClient http;
     private final URI authEndpoint;
     private final URI tokenEndpoint;
@@ -64,13 +67,14 @@ public final class GoogleAuth {
     GoogleAuth(Client client, SecretStore secrets, HttpClient http, URI authEndpoint, URI tokenEndpoint) {
         this.client = client;
         this.secrets = secrets;
+        this.refreshKey = refreshKey(client.id());
         this.http = http;
         this.authEndpoint = authEndpoint;
         this.tokenEndpoint = tokenEndpoint;
     }
 
     public boolean signedIn() throws IOException {
-        return secrets.get(REFRESH_TOKEN).isPresent();
+        return secrets.get(refreshKey).isPresent();
     }
 
     /** 브라우저로 로그인하고 액세스 토큰을 돌려준다. {@code openBrowser}는 UI가 기본 브라우저로 연다. */
@@ -96,7 +100,7 @@ public final class GoogleAuth {
             // access_type=offline + prompt=consent면 항상 온다. 안 오면 다음 실행에서 다시 로그인해야 한다.
             throw new IOException("구글이 리프레시 토큰을 주지 않았다");
         }
-        secrets.put(REFRESH_TOKEN, refresh);
+        secrets.put(refreshKey, refresh);
         return remember(token);
     }
 
@@ -105,7 +109,7 @@ public final class GoogleAuth {
         if (accessToken != null && Instant.now().isBefore(accessExpiry.minusSeconds(60))) {
             return accessToken;
         }
-        String refresh = secrets.get(REFRESH_TOKEN)
+        String refresh = secrets.get(refreshKey)
                 .orElseThrow(() -> new IOException("구글 로그인이 필요하다"));
         Map<String, String> form = new LinkedHashMap<>();
         form.put("grant_type", "refresh_token");
@@ -115,7 +119,7 @@ public final class GoogleAuth {
         } catch (TokenException e) {
             if ("invalid_grant".equals(e.error)) {
                 // 사용자가 권한을 철회했거나 토큰이 만료됐다. 다시 로그인하게 지운다.
-                secrets.delete(REFRESH_TOKEN);
+                secrets.delete(refreshKey);
             }
             throw e;
         }
@@ -123,7 +127,17 @@ public final class GoogleAuth {
 
     public synchronized void signOut() throws IOException {
         accessToken = null;
-        secrets.delete(REFRESH_TOKEN);
+        secrets.delete(refreshKey);
+    }
+
+    /** 클라이언트가 바뀌면 다른 클라이언트의 토큰을 쓰거나 지우지 않게 클라이언트 ID별로 둔다. */
+    static String refreshKey(String clientId) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(clientId.getBytes(StandardCharsets.UTF_8));
+            return "google-refresh-" + HexFormat.of().formatHex(h, 0, 8);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     URI authorizationUri(URI redirect, String challenge, String state) {

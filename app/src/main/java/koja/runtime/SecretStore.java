@@ -140,22 +140,24 @@ public interface SecretStore {
         try (OutputStream in = p.getOutputStream()) {
             in.write(stdin.getBytes(StandardCharsets.UTF_8));
         }
-        // 표준 오류를 따로 읽어 파이프가 차서 멈추지 않게 한다.
+        // 출력은 다른 스레드에서 읽는다. 자식이 출력을 닫지 않아도(키체인 확인 창 등) 제한 시간이 걸리게.
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
         ByteArrayOutputStream err = new ByteArrayOutputStream();
+        Thread outReader = Thread.ofVirtual().start(() -> copy(p.getInputStream(), out));
         Thread errReader = Thread.ofVirtual().start(() -> copy(p.getErrorStream(), err));
-        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         try {
             if (!p.waitFor(30, TimeUnit.SECONDS)) {
                 p.destroyForcibly();
                 throw new IOException("OS 보관소 명령 시간 초과: " + command.getFirst());
             }
+            outReader.join();
             errReader.join();
         } catch (InterruptedException e) {
             p.destroyForcibly();
             Thread.currentThread().interrupt();
             throw new IOException("중단됨", e);
         }
-        return new Run(p.exitValue(), out, err.toString(StandardCharsets.UTF_8));
+        return new Run(p.exitValue(), out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8));
     }
 
     private static void copy(InputStream from, ByteArrayOutputStream to) {

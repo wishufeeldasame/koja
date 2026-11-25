@@ -16,7 +16,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import koja.runtime.SecretStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,21 +92,23 @@ class GoogleAuthTest {
         response = "{\"access_token\":\"at1\",\"expires_in\":3600,\"refresh_token\":\"rt1\"}";
         // 브라우저 대신: 인가 주소의 state·redirect_uri로 루프백에 코드를 보낸다.
         String[] challenge = new String[1];
+        CompletableFuture<Integer> callbackStatus = new CompletableFuture<>();
         String token = auth.signIn(uri -> {
             Map<String, String> q = LoopbackReceiver.query(uri.getRawQuery());
             challenge[0] = q.get("code_challenge");
             URI callback = URI.create(q.get("redirect_uri") + "?code=the-code&state=" + q.get("state"));
             Thread.ofVirtual().start(() -> {
                 try {
-                    LoopbackReceiverTest.get(callback);
+                    callbackStatus.complete(LoopbackReceiverTest.get(callback));
                 } catch (Exception e) {
-                    throw new RuntimeException(e);
+                    callbackStatus.completeExceptionally(e);
                 }
             });
         }, Duration.ofSeconds(5));
 
+        assertEquals(200, callbackStatus.get(5, TimeUnit.SECONDS)); // 브라우저가 안내 페이지를 받았다
         assertEquals("at1", token);
-        assertEquals("rt1", store.map.get(GoogleAuth.REFRESH_TOKEN));
+        assertEquals("rt1", store.map.get(GoogleAuth.refreshKey("cid")));
         Map<String, String> req = tokenRequests.getFirst();
         assertEquals("authorization_code", req.get("grant_type"));
         assertEquals("the-code", req.get("code"));
@@ -116,7 +120,7 @@ class GoogleAuthTest {
 
     @Test
     void refreshUsesStoredTokenAndCaches() throws Exception {
-        store.put(GoogleAuth.REFRESH_TOKEN, "rt1");
+        store.put(GoogleAuth.refreshKey("cid"), "rt1");
         response = "{\"access_token\":\"at2\",\"expires_in\":3600}";
         assertEquals("at2", auth.accessToken());
         assertEquals("at2", auth.accessToken());
@@ -127,12 +131,18 @@ class GoogleAuthTest {
 
     @Test
     void invalidGrantForgetsRefreshToken() throws Exception {
-        store.put(GoogleAuth.REFRESH_TOKEN, "rt1");
+        store.put(GoogleAuth.refreshKey("cid"), "rt1");
         status = 400;
         response = "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}";
         IOException e = assertThrows(IOException.class, auth::accessToken);
         assertFalse(e.getMessage().contains("rt1"));
         assertFalse(auth.signedIn());
+    }
+
+    @Test
+    void refreshTokenIsPerClient() {
+        assertTrue(GoogleAuth.refreshKey("a.apps.googleusercontent.com").matches("google-refresh-[0-9a-f]{16}"));
+        assertFalse(GoogleAuth.refreshKey("a").equals(GoogleAuth.refreshKey("b")));
     }
 
     @Test

@@ -60,12 +60,13 @@ final class LoopbackReceiver implements AutoCloseable {
             reply(ex, 400, "잘못된 요청(state 불일치)");
             return;
         }
+        // 응답을 다 보낸 뒤 대기를 끝낸다. 먼저 끝내면 close()가 서버를 내려 브라우저가 연결 오류를 본다.
         if (q.containsKey("error")) {
-            code.completeExceptionally(new IOException("구글 로그인 거부: " + q.get("error")));
             reply(ex, 200, "로그인이 취소되었습니다. 이 창을 닫아도 됩니다.");
+            code.completeExceptionally(new IOException("구글 로그인 거부: " + q.get("error")));
         } else if (q.get("code") != null && !q.get("code").isEmpty()) {
-            boolean first = code.complete(q.get("code"));
-            reply(ex, 200, first ? "로그인되었습니다. 이 창을 닫고 koja로 돌아가세요." : "이미 처리된 요청입니다.");
+            reply(ex, 200, code.isDone() ? "이미 처리된 요청입니다." : "로그인되었습니다. 이 창을 닫고 koja로 돌아가세요.");
+            code.complete(q.get("code"));
         } else {
             reply(ex, 400, "잘못된 요청(code 없음)");
         }
