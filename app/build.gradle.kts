@@ -47,6 +47,16 @@ application {
     applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "--enable-native-access=javafx.graphics,javafx.media")
 }
 
+// 설계 9장 drive.file 폴더 PoC(D-057). 실제 구글 로그인이 필요해 CI에서는 돌리지 않는다.
+tasks.register<JavaExec>("oauthPoc") {
+    group = "verification"
+    description = "구글 로그인 후 drive.file로 시트를 만들 수 있는 위치를 확인한다"
+    mainModule = "koja"
+    mainClass = "koja.export.DriveFolderPoc"
+    classpath = sourceSets.main.get().runtimeClasspath
+    jvmArgs("-Dfile.encoding=UTF-8")
+}
+
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
 }
