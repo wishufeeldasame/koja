@@ -23,6 +23,8 @@ class LocalServerTest {
         return List.of(
                 javaBin,
                 "-Dfile.encoding=UTF-8",
+                "-Dstdout.encoding=UTF-8",
+                "-Dstderr.encoding=UTF-8",
                 "-cp", System.getProperty("java.class.path"),
                 FakeLocalServer.class.getName(),
                 mode,
@@ -52,7 +54,7 @@ class LocalServerTest {
             HttpResponse<String> res = server.httpClient().send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             assertEquals(200, res.statusCode());
             assertTrue(res.body().contains("\"ok\""));
-            assertTrue(server.recentLogs().stream().anyMatch(line -> line.contains("한글로그")));
+            assertTrue(waitForLogContaining(server, "한글로그"), "UTF-8 로그 누락: " + server.recentLogs());
         }
 
         assertFalse(server.isAlive());
@@ -250,6 +252,17 @@ class LocalServerTest {
     void allocateFreePortReturnsValidPort() throws IOException {
         int port = LocalServer.allocateFreePort();
         assertTrue(port > 0 && port <= 65535);
+    }
+
+    private static boolean waitForLogContaining(LocalServer server, String token) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (server.recentLogs().stream().anyMatch(line -> line.contains(token))) {
+                return true;
+            }
+            Thread.sleep(50);
+        }
+        return false;
     }
 
     private static long waitForChildPid(LocalServer server) throws InterruptedException {
