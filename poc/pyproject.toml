@@ -11,12 +11,5 @@ dependencies = [
   "psutil",  # 윈도우 테스트(win_run.py)에서 단계별 최대 RAM 측정
 ]
 
-[project.optional-dependencies]
-# Qwen3-ASR·pyannote 비교용(torch 포함, 수 GB). 결정된 경로(whisper.cpp + sherpa-onnx)만 잴 때는 필요 없다.
-torch = [
-  "qwen-asr",
-  "pyannote.audio",
-]
-
 [tool.uv]
 package = false

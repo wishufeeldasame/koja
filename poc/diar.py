@@ -1,8 +1,8 @@
 """화자 구분 후보를 돌려 eval/work/diar/<엔진>/<샘플>.json([{startMs,endMs,speaker}])을 만든다.
-사용: uv run python diar.py <엔진> <샘플>... (엔진: pyannote, sherpa-eres2net, sherpa-campplus)
+사용: uv run python diar.py <엔진> <샘플>... (엔진: sherpa-eres2net, sherpa-campplus)
+pyannote(torch) 비교는 D-047로 뺐다. 결과는 D-039에 있다.
 sherpa 엔진은 군집 거리 기준값을 붙일 수 있다(예: sherpa-eres2net@0.8, 기본 0.5. 클수록 화자가 적게 나뉜다)."""
 import json
-import os
 import sys
 import time
 
@@ -33,26 +33,11 @@ def sherpa(emb, threshold=0.5):
     return run
 
 
-def pyannote():
-    import torch
-    from pyannote.audio import Pipeline
-    p = Pipeline.from_pretrained("pyannote/speaker-diarization-community-1", token=os.environ.get("HF_TOKEN"))
-    if torch.backends.mps.is_available():
-        p.to(torch.device("mps"))
-
-    def run(wav):
-        out = p({"waveform": torch.from_numpy(wav)[None], "sample_rate": SR})
-        ann = getattr(out, "speaker_diarization", out)
-        return [{"startMs": int(t.start * 1000), "endMs": int(t.end * 1000), "speaker": str(s)}
-                for t, _, s in ann.itertracks(yield_label=True)]
-    return run
-
-
 def main():
     engine, names = sys.argv[1], sys.argv[2:]
     t0 = time.time()
     base, _, th = engine.partition("@")
-    run = pyannote() if base == "pyannote" else sherpa(EMB[base], float(th or 0.5))
+    run = sherpa(EMB[base], float(th or 0.5))
     meta = {"engine": engine, "loadSec": round(time.time() - t0, 1), "samples": {}}
     for name in names:
         wav, sr = sf.read(work_dir("audio") / f"{name}.wav", dtype="float32")

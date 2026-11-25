@@ -38,3 +38,6 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - .gitignore: samples/ 밖에 둔 영상·오디오 파일(mp4, mov, mkv, mxf, m4v, wav)도 제외
 - 브랜치 흐름: `develop`(기본)으로 작업 PR을 squash, 릴리스는 `develop` → `main` merge commit(D-026). CI가 `develop` 푸시에도 돈다
 - `--enable-native-access`에 `javafx.media` 추가(영상 재생 시 native access 경고 제거)
+
+### 삭제
+- PoC의 선택 의존성 `torch`(qwen-asr, pyannote.audio)와 그 실행 경로(`stt.py` qwen/univa, `diar.py` pyannote). Dependabot 경고 49건(Pillow·transformers·accelerate)이 모두 여기서 나왔다(D-047)

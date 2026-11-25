@@ -1,7 +1,8 @@
 """VAD 구간마다 STT 후보 하나를 돌려 eval/work/stt/<엔진>/<샘플>.json 을 만든다.
 출력 구간: id, startMs, endMs, text, lang, words[{text,startMs,endMs}] (VAD 구간 기준 절대 시간).
-사용: uv run python stt.py <엔진> <샘플>... (엔진: qwen, univa, whisper, sherpa06, sherpa17)
-엔진 이름 끝에 -ko를 붙이면 언어를 한국어로 고정한다(qwen, univa, whisper)."""
+사용: uv run python stt.py <엔진> <샘플>... (엔진: whisper, sherpa06, sherpa17)
+엔진 이름 끝에 -ko를 붙이면 언어를 한국어로 고정한다(whisper).
+Qwen3-ASR(Python) 비교는 torch 의존성과 함께 뺐다(D-047). 결과는 D-039에 있다."""
 import json
 import os
 import shutil
@@ -12,7 +13,6 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-import numpy as np
 import soundfile as sf
 
 from common import work_dir
@@ -21,8 +21,6 @@ VAD = os.environ.get("KOJA_VAD", "vad")  # 다른 VAD 구간(예: vad10)으로 �
 
 SR = 16000
 MODELS = work_dir("models")
-HF = {"qwen": "Qwen/Qwen3-ASR-1.7B", "univa": "TeamUNIVA/qwen3_asr_1.7b_ko_beta"}
-ALIGNER = "Qwen/Qwen3-ForcedAligner-0.6B"
 # 로컬 서버 요청이 HTTP_PROXY 설정을 타고 밖으로 나가지 않게 프록시를 끈다(샘플 외부 전송 금지)
 LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 LANG = {"Korean": "ko", "Japanese": "ja", "English": "en", "korean": "ko", "japanese": "ja", "english": "en"}
@@ -37,25 +35,6 @@ def load(name):
 
 def cut(wav, seg):
     return wav[seg["startMs"] * SR // 1000: seg["endMs"] * SR // 1000]
-
-
-class Qwen:
-    def __init__(self, repo, language=None):
-        self.language = language
-        import torch
-        from qwen_asr import Qwen3ASRModel
-        dev = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-        self.m = Qwen3ASRModel.from_pretrained(
-            repo, forced_aligner=ALIGNER, forced_aligner_kwargs={"dtype": torch.bfloat16, "device_map": dev},
-            dtype=torch.bfloat16, device_map=dev, max_inference_batch_size=8, max_new_tokens=512)
-
-    def run(self, clips):
-        res = self.m.transcribe([(c, SR) for c in clips], language=self.language, return_time_stamps=True)
-        out = []
-        for r in res:
-            words = [{"text": w.text, "s": w.start_time, "e": w.end_time} for w in (r.time_stamps or [])]
-            out.append((r.text, LANG.get(r.language, r.language), words))
-        return out
 
 
 class Sherpa:
@@ -140,8 +119,6 @@ def post(url, path, fields):
 
 def make(engine):
     base, ko = engine.removesuffix("-ko"), engine.endswith("-ko")
-    if base in HF:
-        return Qwen(HF[base], "Korean" if ko else None)
     if base == "whisper":
         return Whisper("ko" if ko else "auto", engine if VAD == "vad" else f"{engine}@{VAD}")
     if engine == "sherpa06":
