@@ -52,7 +52,10 @@ class StageStoreTest {
                 List.of(new SttSegment(1, 0, 1, "a", "ko", null), new SttSegment(1, 2, 3, "b", "ko", null)),
                 List.of(new SttSegment(0, 0, 1, "a", "ko", null)),
                 List.of(new SttSegment(1, 5, 1, "a", "ko", null)),
-                List.of(new SttSegment(1, 0, 1, null, "ko", null)))) {
+                List.of(new SttSegment(1, 0, 1, null, "ko", null)),
+                List.of(new SttSegment(1, 0, 9, "a", "ja", null, List.of(new Word(-1, 2, "a")), null)),
+                List.of(new SttSegment(1, 0, 9, "a", "ja", null, List.of(),
+                        new KoCandidate("가", List.of(new Word(5, 2, "가"))))))) {
             SttResult r = new SttResult(StageStore.CURRENT_VERSION, "x", bad);
             assertThrows(IOException.class, () -> StageStore.saveStt(r, file), bad.toString());
         }
@@ -63,7 +66,10 @@ class StageStoreTest {
     void rejectsOtherVersionAndBadTurns() throws IOException {
         Path file = tmp.resolve(ProjectFiles.DIAR);
         for (String json : List.of("{\"version\": 2, \"turns\": []}", "{\"version\": 1}",
-                "{\"version\": 1, \"turns\": [{\"startMs\": 0, \"endMs\": 1, \"speaker\": \"\"}]}")) {
+                "{\"version\": 1, \"turns\": [{\"startMs\": 0, \"endMs\": 1, \"speaker\": \"\"}]}",
+                // startMs가 빠지면 0으로 읽혀 범위 검사를 통과한다.
+                "{\"version\": 1, \"engine\": \"x\", \"turns\": [{\"endMs\": 1000, \"speaker\": \"0\"}]}",
+                "{\"version\": 1, \"engine\": \"x\", \"turns\": [{\"startMs\": null, \"endMs\": 1000, \"speaker\": \"0\"}]}")) {
             Files.writeString(file, json);
             assertThrows(IOException.class, () -> StageStore.loadDiar(file), json);
         }

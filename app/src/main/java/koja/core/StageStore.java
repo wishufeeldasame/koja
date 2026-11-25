@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import koja.core.Project.SttSegment;
+import koja.core.Project.Word;
 
 /** 단계 결과 파일(stt.json, diar.json) 읽기·쓰기. 엔진은 자기 단계 파일만 만든다(AGENTS.md 엔진 추가 규칙). */
 public final class StageStore {
@@ -20,7 +21,7 @@ public final class StageStore {
     private StageStore() {}
 
     public static SttResult loadStt(Path file) throws IOException {
-        SttResult r = JsonFiles.read(file, SttResult.class);
+        SttResult r = JsonFiles.read(file, SttResult.class, true);
         validate(r, file);
         return r;
     }
@@ -31,7 +32,7 @@ public final class StageStore {
     }
 
     public static DiarResult loadDiar(Path file) throws IOException {
-        DiarResult r = JsonFiles.read(file, DiarResult.class);
+        DiarResult r = JsonFiles.read(file, DiarResult.class, true);
         validate(r, file);
         return r;
     }
@@ -48,12 +49,23 @@ public final class StageStore {
         }
         int prev = 0;
         for (SttSegment s : r.segments()) {
-            if (s == null || s.id() <= prev || s.startMs() < 0 || s.endMs() < s.startMs() || s.text() == null) {
-                throw new IOException("stt.json 구간이 잘못됐습니다(id 오름차순, 0 ≤ startMs ≤ endMs, text 필수): "
+            if (s == null || s.id() <= prev || s.startMs() < 0 || s.endMs() < s.startMs() || s.text() == null
+                    || !validWords(s.words()) || (s.ko() != null && (s.ko().text() == null || !validWords(s.ko().words())))) {
+                throw new IOException("stt.json 구간이 잘못됐습니다(id 오름차순, 구간·단어 0 ≤ startMs ≤ endMs, text 필수): "
                         + (s == null ? "null" : "id " + s.id()) + ", " + file);
             }
             prev = s.id();
         }
+    }
+
+    // 행 startMs는 첫 단어 시간이라(D-040) 단어 시간이 틀리면 타임라인이 틀린다.
+    private static boolean validWords(List<Word> words) {
+        for (Word w : words) {
+            if (w == null || w.startMs() < 0 || w.endMs() < w.startMs() || w.text() == null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void validate(DiarResult r, Path file) throws IOException {

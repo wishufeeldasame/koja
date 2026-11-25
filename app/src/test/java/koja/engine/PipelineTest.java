@@ -82,15 +82,63 @@ class PipelineTest {
 
     @Test
     void skipsDoneStagesAndKeepsEditedSpeakerNames() throws Exception {
-        Path file = newProject(List.of(new Speaker("S1", "선수A", true)));
-        Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Path file = newProject(List.of());
+        Project first = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        ProjectStore.save(withSpeakers(first, List.of(new Speaker("S1", "선수A", true),
+                new Speaker("S2", "화자 미확인 2", false))), file);
         log.clear();
 
         Project p = Pipeline.run(file, () -> { throw new AssertionError("STT를 다시 돌리면 안 된다"); },
                 () -> { throw new AssertionError("화자 구분을 다시 돌리면 안 된다"); }, (s, f) -> {});
 
         assertEquals(List.of(), log);
-        assertEquals(List.of(new Speaker("S1", "선수A", true), new Speaker("S2", "화자 미확인 2", false)), p.speakers());
+        assertEquals(new Speaker("S1", "선수A", true), p.speakers().get(0));
+    }
+
+    /** 화자 구분을 새로 돌리면 S1이 다른 사람일 수 있다. 확정 이름을 남기면 남의 발언에 붙는다. */
+    @Test
+    void newDiarizationResetsSpeakerNamesForItsIds() throws Exception {
+        Path file = newProject(List.of(new Speaker("S1", "선수A", true), new Speaker("S9", "선수B", true)));
+
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of(new Speaker("S1", "화자 미확인 1", false), new Speaker("S9", "선수B", true),
+                new Speaker("S2", "화자 미확인 2", false)), p.speakers());
+    }
+
+    @Test
+    void countsOverlappingTurnsOfOneSpeakerOnce() {
+        // A: 0–3초와 1–3.5초 → 3.5초, B: 5–10초 → 5초. 겹침을 두 번 세면 A(5.5초)가 된다.
+        SttResult stt = new SttResult(1, "x", List.of(new SttSegment(1, 0, 10_000, "가", "ko", null)));
+        DiarResult diar = new DiarResult(1, "x", List.of(
+                new Turn(0, 3_000, "A"), new Turn(1_000, 3_500, "A"), new Turn(5_000, 10_000, "B")));
+        Project p = new Project(Project.CURRENT_VERSION, new Project.Source("a.mp4", 0), null, null,
+                List.of(), List.of(), List.of(), List.of(), null, Map.of());
+
+        assertEquals("S2", Pipeline.withSpeakers(p, stt, diar, true).sttSegments().get(0).speakerId());
+    }
+
+    @Test
+    void interruptBetweenStagesCancelsBeforeSaving() throws Exception {
+        Path file = newProject(List.of());
+        Pipeline.Opener<Transcriber> interrupting = () -> new FakeStt() {
+            @Override
+            public SttResult transcribe(Path audio, DoubleConsumer progress) {
+                Thread.currentThread().interrupt();
+                return STT;
+            }
+        };
+
+        assertThrows(InterruptedException.class, () -> Pipeline.run(file, interrupting, FakeDiar::new, (s, f) -> {}));
+
+        assertFalse(Thread.interrupted(), "interrupt 상태는 예외로 바뀌어야 한다");
+        assertFalse(Files.exists(file.resolveSibling(ProjectFiles.STT)));
+        assertEquals(List.of("open stt", "close stt"), log);
+    }
+
+    static Project withSpeakers(Project p, List<Speaker> speakers) {
+        return new Project(p.version(), p.source(), p.meta(), p.videoType(), speakers, p.sttSegments(), p.rows(),
+                p.ignoredSegIds(), p.glossary(), p.stages());
     }
 
     @Test

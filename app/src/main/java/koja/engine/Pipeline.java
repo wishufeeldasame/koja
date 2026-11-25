@@ -1,6 +1,7 @@
 package koja.engine;
 
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -8,6 +9,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.DoubleConsumer;
 import koja.core.Project;
 import koja.core.Project.Speaker;
@@ -39,10 +41,25 @@ public final class Pipeline {
         void progress(String stage, double fraction);
     }
 
+    // 프로젝트가 달라도 엔진은 앱 전체에서 한 번에 하나만 연다(절대 규칙 5).
+    private static final ReentrantLock ENGINE = new ReentrantLock();
+
     private Pipeline() {}
 
+    /** 취소(스레드 interrupt)는 단계 사이·저장 중에 와도 InterruptedException으로 끝난다. */
     public static Project run(Path projectFile, Opener<? extends Transcriber> stt, Opener<? extends Diarizer> diar,
             Listener listener) throws IOException, InterruptedException {
+        try {
+            return runStages(projectFile, stt, diar, listener);
+        } catch (ClosedByInterruptException e) {
+            InterruptedException ie = new InterruptedException("저장 중 취소");
+            ie.initCause(e);
+            throw ie;
+        }
+    }
+
+    private static Project runStages(Path projectFile, Opener<? extends Transcriber> stt,
+            Opener<? extends Diarizer> diar, Listener listener) throws IOException, InterruptedException {
         Path dir = projectFile.toAbsolutePath().getParent();
         Path audio = dir.resolve(ProjectFiles.AUDIO);
         Path sttFile = dir.resolve(ProjectFiles.STT);
@@ -53,29 +70,46 @@ public final class Pipeline {
         if (done(project, STT, sttFile)) {
             sttResult = StageStore.loadStt(sttFile);
         } else {
+            ENGINE.lockInterruptibly();
             try (Transcriber t = stt.open()) {
                 sttResult = t.transcribe(audio, progress(listener, STT));
+            } finally {
+                ENGINE.unlock();
             }
+            checkInterrupt();
             StageStore.saveStt(sttResult, sttFile);
             project = withStage(project, STT, sttResult.engine());
             ProjectStore.save(project, projectFile);
         }
 
         DiarResult diarResult;
-        if (done(project, DIAR, diarFile)) {
+        boolean newDiar = !done(project, DIAR, diarFile);
+        if (!newDiar) {
             diarResult = StageStore.loadDiar(diarFile);
         } else {
+            checkInterrupt();
+            ENGINE.lockInterruptibly();
             try (Diarizer d = diar.open()) {
                 diarResult = d.diarize(audio, progress(listener, DIAR));
+            } finally {
+                ENGINE.unlock();
             }
+            checkInterrupt();
             StageStore.saveDiar(diarResult, diarFile);
             project = withStage(project, DIAR, diarResult.engine());
             ProjectStore.save(project, projectFile);
         }
 
-        project = withSpeakers(project, sttResult, diarResult);
+        checkInterrupt();
+        project = withSpeakers(project, sttResult, diarResult, newDiar);
         ProjectStore.save(project, projectFile);
         return project;
+    }
+
+    private static void checkInterrupt() throws InterruptedException {
+        if (Thread.interrupted()) {
+            throw new InterruptedException("취소");
+        }
     }
 
     private static boolean done(Project p, String stage, Path file) {
@@ -95,10 +129,12 @@ public final class Pipeline {
     }
 
     /**
-     * 구간마다 겹치는 시간이 가장 긴 화자를 붙인다(설계 4장 3단계). 겹침이 없으면 null(모르면 비움, 절대 규칙 2).
-     * 화자 라벨은 처음 나온 순서로 S1, S2 …가 된다. 이미 있는 화자표 항목(사람이 고친 이름)은 그대로 둔다.
+     * 구간마다 겹치는 시간이 가장 긴 화자를 붙인다(설계 4장 3단계). 같은 화자의 턴끼리 겹친 시간은 한 번만 센다.
+     * 겹침이 없으면 null(모르면 비움, 절대 규칙 2). 화자 라벨은 처음 나온 순서로 S1, S2 …가 된다.
+     * 화자 구분을 새로 돌렸으면(newDiar) 라벨과 사람이 같다는 보장이 없어 그 id들의 화자표 항목을 미확인으로 다시 만든다.
+     * 같은 diar.json이면 매핑도 같으므로 사람이 고친 이름을 그대로 둔다.
      */
-    static Project withSpeakers(Project p, SttResult stt, DiarResult diar) {
+    static Project withSpeakers(Project p, SttResult stt, DiarResult diar, boolean newDiar) {
         List<Turn> turns = new ArrayList<>(diar.turns());
         turns.sort(Comparator.comparingLong(Turn::startMs));
         Map<String, String> ids = new LinkedHashMap<>();
@@ -108,19 +144,13 @@ public final class Pipeline {
 
         List<SttSegment> segments = new ArrayList<>();
         for (SttSegment s : stt.segments()) {
-            Map<String, Long> overlap = new LinkedHashMap<>();
-            for (Turn t : turns) {
-                long ms = Math.min(s.endMs(), t.endMs()) - Math.max(s.startMs(), t.startMs());
-                if (ms > 0) {
-                    overlap.merge(t.speaker(), ms, Long::sum);
-                }
-            }
             String best = null;
             long bestMs = 0;
-            for (var e : overlap.entrySet()) {
-                if (e.getValue() > bestMs) {
-                    best = e.getKey();
-                    bestMs = e.getValue();
+            for (String speaker : ids.keySet()) {
+                long ms = overlap(s, turns, speaker);
+                if (ms > bestMs) {
+                    best = speaker;
+                    bestMs = ms;
                 }
             }
             segments.add(s.withSpeaker(best == null ? null : ids.get(best)));
@@ -132,9 +162,32 @@ public final class Pipeline {
         }
         int n = 0;
         for (String id : ids.values()) {
-            speakers.putIfAbsent(id, new Speaker(id, "화자 미확인 " + ++n, false));
+            Speaker unknown = new Speaker(id, "화자 미확인 " + ++n, false);
+            if (newDiar) {
+                speakers.put(id, unknown);
+            } else {
+                speakers.putIfAbsent(id, unknown);
+            }
         }
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), List.copyOf(speakers.values()),
                 List.copyOf(segments), p.rows(), p.ignoredSegIds(), p.glossary(), p.stages());
+    }
+
+    /** turns는 startMs 순. 구간 안으로 자른 그 화자 턴들의 합집합 길이. */
+    private static long overlap(SttSegment s, List<Turn> turns, String speaker) {
+        long total = 0;
+        long covered = s.startMs();
+        for (Turn t : turns) {
+            if (!t.speaker().equals(speaker)) {
+                continue;
+            }
+            long from = Math.max(covered, t.startMs());
+            long to = Math.min(s.endMs(), t.endMs());
+            if (to > from) {
+                total += to - from;
+                covered = to;
+            }
+        }
+        return total;
     }
 }

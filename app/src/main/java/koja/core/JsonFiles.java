@@ -18,12 +18,21 @@ final class JsonFiles {
     private static final JsonMapper MAPPER = JsonMapper.builder()
             .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
             .build();
+    // 단계 결과 파일은 앱이 모든 항목을 써 넣는다. 시간이 빠지면 0으로 읽혀 범위 검사를 통과하므로 빠진 항목을 거부한다.
+    private static final JsonMapper STRICT = MAPPER.rebuild()
+            .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES, DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+            .build();
 
     private JsonFiles() {}
 
     static <T> T read(Path file, Class<T> type) throws IOException {
+        return read(file, type, false);
+    }
+
+    /** strict면 레코드 항목이 빠지거나 숫자 항목이 null인 파일을 거부한다. */
+    static <T> T read(Path file, Class<T> type, boolean strict) throws IOException {
         try (InputStream in = Files.newInputStream(file)) {
-            return MAPPER.readValue(in, type);
+            return (strict ? STRICT : MAPPER).readValue(in, type);
         } catch (JacksonException e) {
             throw new IOException(file.getFileName() + "을(를) 읽을 수 없습니다: " + file, e);
         }
@@ -33,7 +42,7 @@ final class JsonFiles {
     static void write(Object value, Path file) throws IOException {
         Path dir = file.toAbsolutePath().getParent();
         Files.createDirectories(dir);
-        Path tmp = Files.createTempFile(dir, file.getFileName().toString(), ".tmp");
+        Path tmp = Files.createTempFile(dir, "koja", ".json.tmp");
         try {
             byte[] json;
             try {
