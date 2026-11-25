@@ -53,6 +53,7 @@ class StageStoreTest {
                 List.of(new SttSegment(0, 0, 1, "a", "ko", null)),
                 List.of(new SttSegment(1, 5, 1, "a", "ko", null)),
                 List.of(new SttSegment(1, 0, 1, null, "ko", null)),
+                List.of(new SttSegment(1, 0, 1, "a", "ko", "S1")),
                 List.of(new SttSegment(1, 0, 9, "a", "ja", null, List.of(new Word(-1, 2, "a")), null)),
                 List.of(new SttSegment(1, 0, 9, "a", "ja", null, List.of(),
                         new KoCandidate("가", List.of(new Word(5, 2, "가"))))))) {

@@ -41,20 +41,30 @@ public final class Pipeline {
         void progress(String stage, double fraction);
     }
 
-    // 프로젝트가 달라도 엔진은 앱 전체에서 한 번에 하나만 연다(절대 규칙 5).
-    private static final ReentrantLock ENGINE = new ReentrantLock();
+    // 실행 전체(읽기~마지막 저장)를 앱 전체에서 하나로 묶는다. 엔진이 한 번에 하나만 열리고(절대 규칙 5),
+    // 같은 프로젝트를 두 실행이 동시에 고쳐 stt.json과 project.json이 서로 다른 실행을 가리키는 일도 막는다.
+    private static final ReentrantLock RUN = new ReentrantLock();
 
     private Pipeline() {}
 
-    /** 취소(스레드 interrupt)는 단계 사이·저장 중에 와도 InterruptedException으로 끝난다. */
+    /**
+     * 취소(스레드 interrupt)는 단계 사이·저장 중에 와도 InterruptedException으로 끝난다. 다른 실행이 돌고 있으면 끝날 때까지 기다린다.
+     * 진행률 콜백 안에서 다시 부르면 IllegalStateException(엔진을 연 채 다른 엔진을 열게 된다).
+     */
     public static Project run(Path projectFile, Opener<? extends Transcriber> stt, Opener<? extends Diarizer> diar,
             Listener listener) throws IOException, InterruptedException {
+        if (RUN.isHeldByCurrentThread()) {
+            throw new IllegalStateException("파이프라인 실행 중에 다시 실행할 수 없습니다");
+        }
+        RUN.lockInterruptibly();
         try {
             return runStages(projectFile, stt, diar, listener);
         } catch (ClosedByInterruptException e) {
             InterruptedException ie = new InterruptedException("저장 중 취소");
             ie.initCause(e);
             throw ie;
+        } finally {
+            RUN.unlock();
         }
     }
 
@@ -70,11 +80,8 @@ public final class Pipeline {
         if (done(project, STT, sttFile)) {
             sttResult = StageStore.loadStt(sttFile);
         } else {
-            ENGINE.lockInterruptibly();
             try (Transcriber t = stt.open()) {
                 sttResult = t.transcribe(audio, progress(listener, STT));
-            } finally {
-                ENGINE.unlock();
             }
             checkInterrupt();
             StageStore.saveStt(sttResult, sttFile);
@@ -88,16 +95,13 @@ public final class Pipeline {
             diarResult = StageStore.loadDiar(diarFile);
         } else {
             checkInterrupt();
-            ENGINE.lockInterruptibly();
             try (Diarizer d = diar.open()) {
                 diarResult = d.diarize(audio, progress(listener, DIAR));
-            } finally {
-                ENGINE.unlock();
             }
             checkInterrupt();
             StageStore.saveDiar(diarResult, diarFile);
+            // done 표시와 화자표 초기화는 같은 저장으로 한다. 사이에서 멈추면 다시 돌릴 때 초기화를 건너뛰어 옛 확정 이름이 남는다.
             project = withStage(project, DIAR, diarResult.engine());
-            ProjectStore.save(project, projectFile);
         }
 
         checkInterrupt();

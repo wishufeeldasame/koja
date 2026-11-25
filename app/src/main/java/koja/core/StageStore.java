@@ -49,9 +49,9 @@ public final class StageStore {
         }
         int prev = 0;
         for (SttSegment s : r.segments()) {
-            if (s == null || s.id() <= prev || s.startMs() < 0 || s.endMs() < s.startMs() || s.text() == null
+            if (s == null || s.id() <= prev || s.speakerId() != null || s.startMs() < 0 || s.endMs() < s.startMs() || s.text() == null
                     || !validWords(s.words()) || (s.ko() != null && (s.ko().text() == null || !validWords(s.ko().words())))) {
-                throw new IOException("stt.json 구간이 잘못됐습니다(id 오름차순, 구간·단어 0 ≤ startMs ≤ endMs, text 필수): "
+                throw new IOException("stt.json 구간이 잘못됐습니다(id 오름차순, speakerId 없음, 구간·단어 0 ≤ startMs ≤ endMs, text 필수): "
                         + (s == null ? "null" : "id " + s.id()) + ", " + file);
             }
             prev = s.id();

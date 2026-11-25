@@ -136,6 +136,41 @@ class PipelineTest {
         assertEquals(List.of("open stt", "close stt"), log);
     }
 
+    @Test
+    void rejectsNestedRunFromProgressCallback() throws Exception {
+        Path file = newProject(List.of());
+
+        assertThrows(IllegalStateException.class, () -> Pipeline.run(file, FakeStt::new, FakeDiar::new,
+                (s, f) -> {
+                    try {
+                        Pipeline.run(file, FakeStt::new, FakeDiar::new, (s2, f2) -> {});
+                    } catch (IOException | InterruptedException e) {
+                        throw new AssertionError(e);
+                    }
+                }));
+        assertEquals(List.of("open stt", "close stt"), log);
+    }
+
+    /** 화자 구분 done은 화자표 초기화와 같이 저장된다. 그 전에 멈추면 다음 실행이 화자 구분부터 다시 한다. */
+    @Test
+    void cancelledDiarizationIsNotMarkedDone() throws Exception {
+        Path file = newProject(List.of(new Speaker("S1", "선수A", true)));
+        Pipeline.Opener<Diarizer> interrupting = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) {
+                Thread.currentThread().interrupt();
+                return DIAR;
+            }
+        };
+
+        assertThrows(InterruptedException.class, () -> Pipeline.run(file, FakeStt::new, interrupting, (s, f) -> {}));
+
+        Project saved = ProjectStore.load(file);
+        assertTrue(saved.stages().get(Pipeline.STT).done());
+        assertFalse(saved.stages().containsKey(Pipeline.DIAR));
+        assertEquals(List.of(new Speaker("S1", "선수A", true)), saved.speakers());
+    }
+
     static Project withSpeakers(Project p, List<Speaker> speakers) {
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), speakers, p.sttSegments(), p.rows(),
                 p.ignoredSegIds(), p.glossary(), p.stages());
