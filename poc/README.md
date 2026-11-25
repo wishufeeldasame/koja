@@ -10,24 +10,24 @@ worktree에서 돌릴 때는 샘플이 있는 원래 체크아웃을 `KOJA_DATA_
 
 ```bash
 cd poc
-uv sync --extra torch                     # Qwen3-ASR·pyannote까지 비교할 때. 결정 경로만이면 uv sync
+uv sync                                   # Qwen3-ASR(Python)·pyannote 비교는 torch 의존성과 함께 뺐다(D-047)
 export KOJA_DATA_ROOT=/path/to/koja       # samples/가 있는 체크아웃
 uv run python extract_audio.py            # 영상 → 16kHz mono WAV (한 번만)
 uv run python parse_sheet.py              # 정답 시트 → eval/work/sheet/<샘플>.json
 uv run python vad.py C0003-002 C0004-001 C0008-003            # 공통 VAD 구간 → eval/work/vad/
 uv run python vad.py --split 10 C0003-002 C0004-001 C0008-003 # 10초 넘는 구간 강제 분할 → vad10/
-uv run python stt.py qwen C0003-002 ...   # 엔진: qwen, univa, whisper, sherpa06, sherpa17 (-ko: 한국어 고정)
-KOJA_VAD=vad10 uv run python stt.py qwen ...                  # 결과 폴더 qwen@vad10
-KOJA_VAD=vad10 uv run python stt.py qwen-ko ...               # 같은 구간을 한국어 고정으로
-uv run python merge_2pass.py qwen@vad10 qwen-ko@vad10 qwen-2pass@vad10   # 2회 방식
-uv run python diar.py sherpa-campplus@0.9 C0003-002 ...  # pyannote, sherpa-eres2net, sherpa-campplus (@군집 기준값)
-uv run python evaluate.py qwen-2pass@vad10 pyannote      # STT 결과 [화자 결과]
+uv run python stt.py whisper C0003-002 ...   # 엔진: whisper, sherpa06, sherpa17 (-ko: 한국어 고정)
+KOJA_VAD=vad10 uv run python stt.py whisper ...               # 결과 폴더 whisper@vad10
+KOJA_VAD=vad10 uv run python stt.py whisper-ko ...            # 같은 구간을 한국어 고정으로
+uv run python merge_2pass.py whisper@vad10 whisper-ko@vad10 whisper-2pass@vad10   # 2회 방식
+uv run python diar.py sherpa-campplus@0.9 C0003-002 ...  # sherpa-eres2net, sherpa-campplus (@군집 기준값)
+uv run python evaluate.py whisper-2pass@vad10 sherpa-campplus@0.9   # STT 결과 [화자 결과]
 uv run python translate.py e4b C0003-002 ...           # 번역: e4b, q9b, g26b → eval/work/mt/<모델>/
 uv run python mt_eval.py e4b q9b g26b                    # chrF·처리 시간·GPU 메모리
 uv run python structure.py e4b C0003-002 ...           # 구조화: whisper-2pass + sherpa-campplus@0.9 → eval/work/struct/<모델>/
 KOJA_SPLIT=1 uv run python structure.py e4b ...          # 구간을 문장 조각으로 나눈 뒤 구조화 → struct/<모델>@sent/
 uv run python struct_eval.py e4b e4b@sent q9b q9b@sent  # 행 재현율·시간·행 경계·질문·무시·검증·처리 시간
-./run_all.sh stt qwen whisper ...         # 엔진을 하나씩 돌리며 로그·최대 메모리 기록(맥)
+./run_all.sh stt whisper sherpa06 ...       # 엔진을 하나씩 돌리며 로그·최대 메모리 기록(맥)
 ```
 
 처리 시간은 스크립트가 `meta.json`에, 최대 메모리는 `run_all.sh`가 `/usr/bin/time -l`(맥: peak memory footprint)로 잰다. whisper는 서버 프로세스 값이 `eval/work/stt/<엔진>/server_time.txt`에 남는다. 윈도우 실기 테스트는 담당자 PC용 묶음으로 한다: [WINDOWS.md](WINDOWS.md).
@@ -38,14 +38,11 @@ uv run python struct_eval.py e4b e4b@sent q9b q9b@sent  # 행 재현율·시간�
 
 | 엔진 | 모델 | 받는 곳 |
 |---|---|---|
-| qwen | Qwen/Qwen3-ASR-1.7B + Qwen/Qwen3-ForcedAligner-0.6B | Hugging Face 캐시 |
-| univa | TeamUNIVA/qwen3_asr_1.7b_ko_beta + 같은 정렬기 | Hugging Face 캐시 |
 | whisper | ggml-large-v3-turbo.bin, `whisper-server`(brew `whisper-cpp`) | `eval/work/models/` |
 | sherpa06 | sherpa-onnx-qwen3-asr-0.6B-int8 (k2-fsa 릴리스) | `eval/work/models/` |
 | sherpa17 | ModelScope zengshuishui/Qwen3-ASR-onnx `model_1.7B` int8 | `eval/work/models/sherpa-qwen3-1.7B/` |
 | VAD | silero_vad.onnx | `eval/work/models/` |
 | sherpa 화자 | pyannote segmentation-3.0 onnx + 3D-Speaker 임베딩 | `eval/work/models/diar/` |
-| pyannote | pyannote/speaker-diarization-community-1 (이용 조건 동의·HF 토큰 필요) | Hugging Face 캐시 |
 | 번역 e4b / q9b / g26b | unsloth gemma-4-E4B-it / Qwen3.5-9B / gemma-4-26B-A4B-it GGUF Q4_K_M, `llama-server`(brew `llama.cpp`) | `eval/work/models/llm/` |
 
 ## 평가 방법 (D-032 순서)

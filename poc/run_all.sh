@@ -1,6 +1,6 @@
 #!/bin/sh
 # 엔진을 하나씩 순서대로 돌린다(GPU는 한 번에 한 단계). 로그·최대 메모리는 eval/work/logs/.
-# 사용: KOJA_DATA_ROOT=... ./run_all.sh stt qwen univa ...  /  ./run_all.sh diar sherpa-eres2net ...
+# 사용: KOJA_DATA_ROOT=... ./run_all.sh stt whisper sherpa06 ...  /  ./run_all.sh diar sherpa-eres2net ...
 set -u
 kind=$1; shift
 fail=0
