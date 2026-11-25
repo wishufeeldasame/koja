@@ -121,7 +121,7 @@ final class ReviewView extends SplitPane {
         }
         Project p = project;
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(),
-                List.copyOf(rows), p.glossary(), p.stages());
+                List.copyOf(rows), p.ignoredSegIds(), p.glossary(), p.stages());
     }
 
     Path file() {

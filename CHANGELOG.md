@@ -25,6 +25,8 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 구조화 모델 비교 스크립트(`poc/structure.py`, `poc/struct_eval.py`): STT 구간·화자 → llama-server로 rows·무시 목록, 구간 ID 검증·오류 알려 재시도, 문장 조각 분할 선택(`KOJA_SPLIT`). 시트 행 재현율·시간·행 경계·일본어 질문·무시·검증·처리 시간·GPU 메모리. 설계 7.3에 Gemma 4 E4B·Qwen3.5-9B 수치. `translate.Server`에 컨텍스트 길이 인자. 결정 D-045(한국어 후보가 있는 구간은 일본어 질문 행과 한국어 행에 함께 쓸 수 있음, 설계 2장·AGENTS.md 절대 규칙 1·spec-reviewer 보완), D-046(구조화 기본 Gemma 4 E4B, 설계 6장)
 - 설계 4장에 시트 구성(9단계 내보내기): A タイムライン · B 話者 · C 韓国語 · D 日本語 열과 `rows` 필드 대응, 질문·플래그 표시 규칙
 - 결정 D-039(로컬 STT는 whisper.cpp 내장, VAD·화자 구분은 sherpa-onnx), D-040(STT 2회 방식, 행 시각은 단어 시간). 설계 7.1에 PoC 수치 요약
+- `koja.engine` 단계 엔진 계약(`Engine`, `Transcriber`, `Diarizer`, `LlmClient`, `FrameReader`)과 순차 파이프라인 골격(`Pipeline`: STT → 화자 구분 → 구간에 화자 붙이기, 끝난 단계 건너뛰기, D-049)
+- 단계 결과 파일 `stt.json`·`diar.json` 읽기·쓰기와 검사(`koja.core.StageStore`, D-048). `project.json`에 `ignoredSegIds`, STT 구간 단어 시간 `words`·한국어 후보 `ko` 선택 항목 추가. 옛 파일은 그대로 읽는다(D-048)
 
 ### 변경
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙

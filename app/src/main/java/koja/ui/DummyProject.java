@@ -39,6 +39,7 @@ final class DummyProject {
                         new Project.Speaker("S2", "화자 미확인 1", false)),
                 segments,
                 rows,
+                List.of(),
                 "valorant",
                 Map.of("stt", new Project.Stage("dummy", true)));
     }

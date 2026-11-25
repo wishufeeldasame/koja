@@ -121,7 +121,7 @@ public final class KojaApp extends Application {
             Project project = new Project(Project.CURRENT_VERSION,
                     new Project.Source(source.toString(), result.durationMs()),
                     new Project.Meta(name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name, "", List.of()),
-                    null, List.of(), List.of(), List.of(), null,
+                    null, List.of(), List.of(), List.of(), List.of(), null,
                     Map.of("import", new Project.Stage("ffmpeg", true)));
             try {
                 ProjectStore.save(project, file);
