@@ -27,6 +27,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 결정 D-039(로컬 STT는 whisper.cpp 내장, VAD·화자 구분은 sherpa-onnx), D-040(STT 2회 방식, 행 시각은 단어 시간). 설계 7.1에 PoC 수치 요약
 - `koja.engine` 단계 엔진 계약(`Engine`, `Transcriber`, `Diarizer`, `LlmClient`, `FrameReader`)과 순차 파이프라인 골격(`Pipeline`: STT → 화자 구분 → 구간에 화자 붙이기, 끝난 단계 건너뛰기, D-049)
 - 단계 결과 파일 `stt.json`·`diar.json` 읽기·쓰기와 검사(`koja.core.StageStore`, D-048). `project.json`에 `ignoredSegIds`, STT 구간 단어 시간 `words`·한국어 후보 `ko` 선택 항목 추가. 옛 파일은 그대로 읽는다(D-048)
+- `koja.runtime` 공통 인프라: OS별 데이터·모델 경로(`AppPaths`), Hugging Face 모델 다운로드·Range 이어 받기·취소·SHA-256 검증·원자적 이동(`ModelStore`, D-050), `whisper-server`/`llama-server` 공용 로컬 HTTP 서버 수명주기(`LocalServer`: 동적 포트·프록시 우회·헬스체크·프로세스 트리 정리, D-051)와 단위 테스트
 
 ### 변경
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙
