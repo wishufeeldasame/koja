@@ -7,7 +7,7 @@
 5) 무시: 시트 행 글자가 SEG_COVER 이상 든 구간이 무시 목록에 들어간 비율(낮을수록 좋음). 시트가 정제본이라 시트에 없는
    구간은 통역인지 편집 때 뺀 발언인지 모른다. 그래서 화자로 대신 본다(추정): 선수 화자, 질문자 화자, 그 외(통역·관계자)
    구간이 한국어 행·일본어 질문 행·무시 중 어디로 갔나.
-기준선(seg:<stt>:<split>)은 각 실행이 쓴 (stt, split) 조합마다 자동으로 함께 잰다(단위 1개 = LINE 행 1개).
+기준선(base:<stt>:<diar>:<split>)은 각 실행이 쓴 (stt, diar, split) 조합마다 자동으로 함께 잰다(단위 1개 = LINE 행 1개).
 사용: uv run python struct_eval.py <태그>... (eval/work/struct/<태그>/, 예: e4b e4b@flat_clause)"""
 import difflib
 import json
@@ -165,7 +165,7 @@ def main():
     if not baselines:
         baselines = [(stt, diar, "none"), (stt, diar, "sent"), (stt, diar, "clause")]
     for b_stt, b_diar, b_split in baselines:
-        bkey = f"base:{b_stt}:{b_split}"
+        bkey = f"base:{b_stt}:{b_diar}:{b_split}"
         summary[bkey] = {}
         for name in base_names:
             segs = {u["id"]: u for u in load(name, b_stt, b_diar, b_split)}
@@ -178,7 +178,7 @@ def main():
         summary[key] = {}
         m = meta["samples"].values()
         sec, audio = sum(x["sec"] for x in m), sum(x["audioSec"] for x in m)
-        summary[key] |= {"stt": meta["stt"], "split": normalize_split(meta["split"]),
+        summary[key] |= {"stt": meta["stt"], "diar": meta["diar"], "split": normalize_split(meta["split"]),
                          "format": meta.get("format", "grouped"),
                          "gpuPeakGB": meta.get("gpuPeakGB"), "loadSec": meta["loadSec"],
                          "minPerHourVideo": round(sec / audio * 60, 1),

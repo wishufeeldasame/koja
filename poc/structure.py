@@ -117,7 +117,10 @@ ACTION_RULES = {
 ACTION_RULES["MIXED"] = ACTION_RULES["INTERVIEW_JA"].replace(
     "[영상 유형: INTERVIEW_JA (일본인 인터뷰어 + 한국인 답변자)]",
     "[영상 유형: MIXED (혼합형)]",
-) + "\n- QUESTION_KO: 한국인 인터뷰어의 한국어 질문이 있을 때만 사용."
+) + (
+    "\n- QUESTION_KO: 인터뷰 구간에서 한국인 인터뷰어의 한국어 질문이 있을 때만 사용."
+    "\n- 자유 발언·해설·토론 구간: 인터뷰가 아닌 자유 발언 구간에서는 답변자 외 화자의 한국어 해설·토론도 IGNORE하지 말고 모두 LINE으로 남긴다(질문 영역을 억지로 만들지 않는다)."
+)
 
 
 def mmss(ms):
@@ -232,8 +235,13 @@ def load(name, stt, diar, split="clause"):
         if len(pieces) < 2:
             units.append(u)
             continue
-        starts = [p[0]["startMs"] for p in pieces[1:]]
         other_ws = u["words"] if use_ko else (u["koWords"] if k else [])
+        other_txt = u["text"] if use_ko else (u["ko"] or "")
+        # 한쪽 원문에 텍스트는 있는데 단어 시각이 없으면 분할 시 원문이 사라지므로 분할하지 않는다(절대 규칙 1)
+        if k and other_txt and not other_ws:
+            units.append(u)
+            continue
+        starts = [p[0]["startMs"] for p in pieces[1:]]
         other_bins = [[] for _ in pieces]
         for w in other_ws:
             other_bins[sum(w["startMs"] >= t for t in starts)].append(w)
@@ -302,12 +310,19 @@ def speaker_profile(segs):
                           key=lambda s: -len(s["text"]))[:1]
             for s in cand:
                 lines.append(f"    예시[{lang}]: {s['text'][:60]}")
-    # 실제 연속 대화 흐름(영상 25%·60% 지점 각 12구간): 질문 → 통역 → 답변 → 통역 순서를 바로 볼 수 있게
-    p1, p2 = len(segs) // 4, len(segs) * 3 // 5
-    excerpt = segs[p1:p1 + 12] + segs[p2:p2 + 12]
-    lines.append("\n연속 대화 발췌(시간 순):")
-    for s in excerpt:
-        lines.append(f"  {mmss(s['startMs'])} {s['speaker']}({s['lang']}): {s['text'][:65]}")
+    # 실제 연속 대화 흐름(영상 25%·60% 지점 각 12구간): 겹치면 한 범위로 합치고, 떨어지면 별도 발췌로 표시
+    n_segs = len(segs)
+    if n_segs <= 24:
+        ranges = [(0, n_segs)]
+    else:
+        a0, a1 = n_segs // 4, min(n_segs, n_segs // 4 + 12)
+        b0, b1 = n_segs * 3 // 5, min(n_segs, n_segs * 3 // 5 + 12)
+        ranges = [(a0, max(a1, b1))] if a1 >= b0 else [(a0, a1), (b0, b1)]
+    for idx, (lo, hi) in enumerate(ranges, 1):
+        header = f"\n연속 대화 발췌 {idx}(시간 순):" if len(ranges) > 1 else "\n연속 대화 발췌(시간 순):"
+        lines.append(header)
+        for s in segs[lo:hi]:
+            lines.append(f"  {mmss(s['startMs'])} {s['speaker']}({s['lang']}): {s['text'][:65]}")
     return speakers, "\n".join(lines)
 
 
@@ -330,9 +345,13 @@ def speaker_table(segs, roles=None):
     return "\n".join(out)
 
 
+def has_ko_candidate(s):
+    return bool((s.get("ko") or "").strip())
+
+
 def seg_line(s, label=""):
     t = f"[{s['id']}] {mmss(s['startMs'])} {s['speaker']} {s['lang']}: {s['text']}"
-    if s["ko"] is not None:
+    if has_ko_candidate(s):
         t += f" | ko후보: {s['ko']}"
     return t + label
 
@@ -584,7 +603,7 @@ def chat_json(srv, messages, schema_obj, stats, max_tokens=4096):
 
 def ask(srv, segs, seg_map, lo, hi, done_kind, table, video_type, stats):
     ids = [s["id"] for s in segs[lo:hi]]
-    dual = [s["id"] for s in segs[lo:hi] if s["ko"] is not None]
+    dual = [s["id"] for s in segs[lo:hi] if has_ko_candidate(s)]
     acts = actions_for(video_type, bool(dual))
     sch = flat_schema(ids, acts)
     base_messages = chunk_prompt(segs, lo, hi, done_kind, table, video_type)
@@ -610,7 +629,8 @@ def ask(srv, segs, seg_map, lo, hi, done_kind, table, video_type, stats):
             {"role": "user", "content": f"이전 출력 검증 실패: {err}\n처리할 구간 ID 목록 {ids} 를 빠짐없이 정확히 이 순서대로 다시 JSON 출력하세요."},
         ]
     stats["fallbackChunks"] += 1
-    return {"rows": [{"kind": "LINE", "segIds": [i], "flags": []} for i in ids], "ignoredSegIds": []}
+    return {"rows": [{"kind": "LINE", "segIds": [i], "flags": _auto_flags(seg_map[i], "LINE")} for i in ids],
+            "ignoredSegIds": []}
 
 
 def settle(rows, ignored, first, last_chunk):
@@ -682,7 +702,7 @@ def main():
                      "completionTokens": 0, "maxPromptTokens": 0, "errors": []}
             t1 = time.time()
             out = structure(srv, segs, stats)
-            err = check(out, [s["id"] for s in segs], [s["id"] for s in segs if s["ko"] is not None])
+            err = check(out, [s["id"] for s in segs], [s["id"] for s in segs if has_ko_candidate(s)])
             assert err is None, f"합친 결과 검증 실패: {err[:80]}"
             (tmp / f"{name}.json").write_text(json.dumps({**out, "inputHash": fingerprint(segs)}, ensure_ascii=False),
                                                encoding="utf-8")
@@ -759,6 +779,14 @@ def _selftest():
     assert conv3 == {"rows": [_r("LINE", 3), _r("LINE", 4), _r("LINE", 5, flags=["SPEAKER_UNSURE", "TEXT_UNSURE"])], "ignoredSegIds": []}, conv3
     # FREE 영상은 질문 action을 허용하지 않는다
     assert "QUESTION_JA" not in actions_for("FREE", True) and "QUESTION_KO" not in actions_for("FREE", True)
+
+    # 빈 한국어 후보는 BOTH_JA_LINE 이중 사용 대상이 아니다
+    assert not has_ko_candidate({"ko": ""}) and not has_ko_candidate({"ko": "  "}) and has_ko_candidate({"ko": "답변"})
+    # 짧은 영상(20구간)의 대화 발췌는 중복·역전 없이 시간순 한 번만 들어간다
+    short_segs = [{"id": i, "startMs": i * 1000, "endMs": (i + 1) * 1000, "speaker": "S0", "lang": "ko", "text": f"발언 {i}"}
+                  for i in range(1, 21)]
+    _, prof = speaker_profile(short_segs)
+    assert "연속 대화 발췌(시간 순):" in prof and prof.count("발언 13") == 1, prof
 
     _k, _i, _c = settle([_r("LINE", 1, 2), _r("QUESTION_JA", 4, 7), _r("LINE", 5, 6)], [3, 8], 1, False)
     assert _c == 4 and _k == [_r("LINE", 1, 2)] and _i == [3], (_k, _i, _c)
