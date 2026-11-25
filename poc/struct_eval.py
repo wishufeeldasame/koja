@@ -7,8 +7,8 @@
 5) 무시: 시트 행 글자가 SEG_COVER 이상 든 구간이 무시 목록에 들어간 비율(낮을수록 좋음). 시트가 정제본이라 시트에 없는
    구간은 통역인지 편집 때 뺀 발언인지 모른다. 그래서 화자로 대신 본다(추정): 선수 화자, 질문자 화자, 그 외(통역·관계자)
    구간이 한국어 행·일본어 질문 행·무시 중 어디로 갔나.
-"seg"·"seg@sent" 는 비교 기준선(구간·문장 조각 하나 = LINE 행 하나, 무시·질문 없음)이다.
-사용: uv run python struct_eval.py <태그>... (eval/work/struct/<태그>/, 예: e4b q9b@sent)"""
+기준선(seg:<stt>:<split>)은 각 실행이 쓴 (stt, split) 조합마다 자동으로 함께 잰다(단위 1개 = LINE 행 1개).
+사용: uv run python struct_eval.py <태그>... (eval/work/struct/<태그>/, 예: e4b e4b@flat_clause)"""
 import difflib
 import json
 import os
@@ -18,7 +18,7 @@ from datetime import date
 
 from common import DATA_ROOT, work_dir
 from evaluate import COVER, HANGUL, WIN, hangul, norm, stream
-from structure import fingerprint, load
+from structure import fingerprint, load, normalize_split
 
 ONE = 0.8
 Q_COVER = 0.3
@@ -90,6 +90,8 @@ def evaluate(name, out, segs):
            "oneToOne": round(len(one) / len(hits), 3) if hits else None,
            "rows": {k: sum(r["kind"] == k for r in out["rows"]) for k in ("LINE", "QUESTION_KO", "QUESTION_JA")},
            "ignored": len(out["ignoredSegIds"])}
+    if "videoType" in out:
+        res["videoType"] = out["videoType"]
 
     qchars = row_chars(q_rows, segs, lambda u: u, lambda ch: True)
     qs, q_used = [], set()
@@ -99,9 +101,11 @@ def evaluate(name, out, segs):
             qs.append(cov)
             q_used |= {qchars[p][2] for p in pos}
     if qs:
+        false_rows = len(q_rows) - len(q_used)
         res["questionsJa"] = {"count": len(qs), "detected": round(sum(c >= Q_COVER for c in qs) / len(qs), 3),
                               "meanCover": round(sum(qs) / len(qs), 3), "outRows": len(q_rows),
-                              "falseRows": len(q_rows) - len(q_used)}
+                              "falseRows": false_rows,
+                              "falseRate": round(false_rows / len(q_rows), 3) if q_rows else 0.0}
 
     # 구간이 시트 내용인지: 모든 구간을 대상으로 시트 행(한국어)·질문(일본어)을 정렬해 구간별로 겹친 글자를 센다
     all_rows = [{"segIds": [i]} for i in segs]
@@ -146,38 +150,52 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = {}
     metas = {k: json.loads((work_dir("struct", k) / "meta.json").read_text(encoding="utf-8")) for k in sys.argv[1:]}
-    # 기준선은 첫 모델과 같은 샘플·STT·화자로 만든다. 모델이 없으면 환경변수·시트 전체
     ref = next(iter(metas.values()), None)
-    if ref:
-        stt, diar = ref["stt"], ref["diar"]
-        assert all((m["stt"], m["diar"], sorted(m["samples"])) == (stt, diar, sorted(ref["samples"])) for m in metas.values()), \
-            "모델마다 STT·화자·샘플이 다름"
     base_names = sorted(ref["samples"]) if ref else sorted(p.stem for p in work_dir("sheet").glob("C*.json"))
-    for key in ["seg", "seg@sent"] + sys.argv[1:]:
-        meta = metas.get(key)
-        names = sorted(meta["samples"]) if meta else base_names
+    if ref:
+        assert all(sorted(m["samples"]) == base_names for m in metas.values()), "모델마다 샘플 목록이 다름"
+    # 실행에 쓰인 (stt, diar, split) 조합마다 기준선을 자동으로 만든다
+    baselines = []
+    seen = set()
+    for m in metas.values():
+        spec = (m["stt"], m["diar"], normalize_split(m["split"]))
+        if spec not in seen:
+            seen.add(spec)
+            baselines.append(spec)
+    if not baselines:
+        baselines = [(stt, diar, "none"), (stt, diar, "sent"), (stt, diar, "clause")]
+    for b_stt, b_diar, b_split in baselines:
+        bkey = f"base:{b_stt}:{b_split}"
+        summary[bkey] = {}
+        for name in base_names:
+            segs = {u["id"]: u for u in load(name, b_stt, b_diar, b_split)}
+            out = {"rows": [{"kind": "LINE", "segIds": [i]} for i in segs], "ignoredSegIds": []}
+            summary[bkey][name] = evaluate(name, out, segs)
+            print(bkey, name, json.dumps(summary[bkey][name]))
+    for key in sys.argv[1:]:
+        meta = metas[key]
+        names = sorted(meta["samples"])
         summary[key] = {}
-        if meta:
-            m = meta["samples"].values()
-            sec, audio = sum(x["sec"] for x in m), sum(x["audioSec"] for x in m)
-            summary[key] |= {"gpuPeakGB": meta.get("gpuPeakGB"), "loadSec": meta["loadSec"],
-                             "minPerHourVideo": round(sec / audio * 60, 1),
-                             "chunks": sum(x["chunks"] for x in m), "firstTry": sum(x.get("firstTry", 0) for x in m),
-                             "retries": sum(x["retries"] for x in m),
-                             "fallbackChunks": sum(x["fallbackChunks"] for x in m),
-                             "maxPromptTokens": max(x["maxPromptTokens"] for x in m)}
-            print(key, json.dumps(summary[key]))
+        m = meta["samples"].values()
+        sec, audio = sum(x["sec"] for x in m), sum(x["audioSec"] for x in m)
+        summary[key] |= {"stt": meta["stt"], "split": normalize_split(meta["split"]),
+                         "format": meta.get("format", "grouped"),
+                         "gpuPeakGB": meta.get("gpuPeakGB"), "loadSec": meta["loadSec"],
+                         "minPerHourVideo": round(sec / audio * 60, 1),
+                         "chunks": sum(x["chunks"] for x in m), "firstTry": sum(x.get("firstTry", 0) for x in m),
+                         "retries": sum(x["retries"] for x in m),
+                         "fallbackChunks": sum(x["fallbackChunks"] for x in m),
+                         "maxPromptTokens": max(x["maxPromptTokens"] for x in m)}
+        print(key, json.dumps(summary[key]))
         for name in names:
-            split = meta["split"] if meta else key.endswith("@sent")
-            segs = {u["id"]: u for u in load(name, meta["stt"] if meta else stt, meta["diar"] if meta else diar, split)}
-            out = ({"rows": [{"kind": "LINE", "segIds": [i]} for i in segs], "ignoredSegIds": []} if not meta else
-                   json.loads((work_dir("struct", key) / f"{name}.json").read_text(encoding="utf-8")))
-            if meta and out.get("inputHash") != fingerprint(list(segs.values())):
+            segs = {u["id"]: u for u in load(name, meta["stt"], meta["diar"], meta["split"])}
+            out = json.loads((work_dir("struct", key) / f"{name}.json").read_text(encoding="utf-8"))
+            if out.get("inputHash") != fingerprint(list(segs.values())):
                 raise SystemExit(f"{key} {name}: 구조화 때와 STT·화자 입력이 다름. 구조화를 다시 돌린다")
             summary[key][name] = evaluate(name, out, segs)
             print(key, name, json.dumps(summary[key][name]))
-    tag = "_".join(sys.argv[1:])
-    (out_dir / f"struct_summary_{tag}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    tag = "_".join(sys.argv[1:]) or "base"
+    (out_dir / f"struct_summary_{tag}.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -24,9 +24,10 @@ uv run python diar.py sherpa-campplus@0.9 C0003-002 ...  # sherpa-eres2net, sher
 uv run python evaluate.py whisper-2pass@vad10 sherpa-campplus@0.9   # STT 결과 [화자 결과]
 uv run python translate.py e4b C0003-002 ...           # 번역: e4b, q9b, g26b → eval/work/mt/<모델>/
 uv run python mt_eval.py e4b q9b g26b                    # chrF·처리 시간·GPU 메모리
-uv run python structure.py e4b C0003-002 ...           # 구조화: whisper-2pass + sherpa-campplus@0.9 → eval/work/struct/<모델>/
-KOJA_SPLIT=1 uv run python structure.py e4b ...          # 구간을 문장 조각으로 나눈 뒤 구조화 → struct/<모델>@sent/
-uv run python struct_eval.py e4b e4b@sent q9b q9b@sent  # 행 재현율·시간·행 경계·질문·무시·검증·처리 시간
+uv run python structure.py e4b C0003-002 ...           # 구조화(기본: 평탄 스키마, clause 분할, 24구간/8K) → eval/work/struct/e4b@flat_clause/
+KOJA_SPLIT=none uv run python structure.py e4b ...     # 분할 없이 구조화(none|sent|paware|clause; 1은 구 sent 호환)
+KOJA_STT=whisper-2pass@vad10 uv run python structure.py e4b ...  # 10초 VAD 결과로 구조화
+uv run python struct_eval.py e4b e4b@v3_clause e4b@v3_clause_vad10  # 행 재현율·시간·행 경계·질문·무시·검증·처리 시간
 ./run_all.sh stt whisper sherpa06 ...       # 엔진을 하나씩 돌리며 로그·최대 메모리 기록(맥)
 ```
 
@@ -60,7 +61,12 @@ uv run python struct_eval.py e4b e4b@sent q9b q9b@sent  # 행 재현율·시간�
 
 ## 구조화 평가 방법
 
-`structure.py`는 STT 구간(2회 방식이면 한국어 후보 포함)·화자·시각을 4분 청크(앞뒤 30초 문맥)로 llama-server에 보내 `rows`(kind, segIds)와 `ignoredSegIds`만 JSON 스키마로 받는다. 청크 끝에 걸친 행은 확정하지 않고 다음 청크에서 다시 묻는다. 검증: 모든 구간 ID가 한국어 행·일본어 질문 행·무시 목록 중 어딘가에 오름차순으로 쓰였는지, 각 목록 안에서는 한 번씩인지. 한국어 후보가 있는 구간만 질문 행과 한국어 행에 함께 쓸 수 있다. 틀리면 오류를 알려 주고 3번까지 묻고, 그래도 틀리면 그 청크 구간을 하나씩 LINE으로 남긴다.
+`structure.py`는 STT 구간(2회 방식이면 한국어 후보 포함)을 1차 언어 인식 절 단위(`KOJA_SPLIT=clause`, 기본값)로 나눈 뒤 2단계로 llama-server(컨텍스트 8K)를 호출한다(D-053~D-055).
+
+1. **영상 전체 분석**: 화자별 발화 시간·언어 시간 비율·전환 통계·대표 발화·중반부 연속 대화 발췌로 `videoType`과 화자 추정 역할을 판별한다.
+2. **청크 구조화**: 최대 24구간·3분 청크(앞뒤 최대 6구간·30초 문맥)를 보내 입력 구간과 1:1 고정 순서 배열(`items[{id, action, newRow, flags}]`)만 JSON 스키마로 받는다. `FREE` 영상은 스키마에서 질문 액션을 제외한다. 청크 끝에 걸친 행은 확정하지 않고 다음 청크에서 다시 묻는다.
+
+검증: 출력 `items`의 ID가 요청 구간 ID와 정확히 같은 순서·개수인지, `BOTH_JA_LINE`은 한국어 후보가 있는 구간(D-045)에만 썼는지 검사하고, 코드가 과병합 방지 상한(한국어 행 누적 16한글자·4.5초, 합산 32한글자)과 기본 불확실 플래그를 적용해 `rows`·`ignoredSegIds`로 변환한 뒤 D-031·D-045 불변식을 이중 검증한다. 틀리면 최신 오류와 ID 목록만 알려 3번까지 다시 묻고, 그래도 틀리면 그 청크 구간을 하나씩 LINE으로 남긴다.
 
 `struct_eval.py` 지표(D-032 순서, 정렬은 `evaluate.py`와 같음):
 
@@ -71,4 +77,4 @@ uv run python struct_eval.py e4b e4b@sent q9b q9b@sent  # 행 재현율·시간�
 5. **무시**: 시트 행 글자가 30% 이상 든 구간이 무시된 비율. 통역 처리는 화자로 대신 본다(추정): 시트 행이 든 구간의 최빈 화자를 선수, 시트 질문이 든 구간의 최빈 화자를 질문자, 나머지를 통역·관계자로 보고 각 구간이 한국어 행·질문 행·무시 중 어디로 갔는지 센다.
 6. **검증·자원**: 청크 1회 통과율, 재시도, 대체(LINE으로 남긴) 청크, 1시간 환산 처리 시간(오디오 길이 기준), GPU 메모리(맥 IOAccelerator, 추정).
 
-`seg`·`seg@sent`는 기준선(구간·문장 조각 하나 = LINE 행 하나)이다. 문장 조각(`KOJA_SPLIT=1`)은 한국어 쪽 단어(한국어 후보가 있으면 후보)를 문장 끝 부호 단어 뒤에서 나누고, 1차 단어는 시작 시각이 든 조각에 넣는다.
+`base:<stt>:<split>`은 각 실행의 (STT, 분할 방식) 조합마다 자동으로 계산하는 기준선(단위 1개 = LINE 행 1개)이다. `clause` 분할은 한국어 구간을 문장 끝·화자 전환·쉼표·휴지·어미·길이 기준으로 나누고, 비한국어 구간은 2차 한국어 후보의 환각 부호로 자르지 않고 1차 단어의 화자 전환·긴 문장 끝에서만 나눈다.
