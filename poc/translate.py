@@ -61,13 +61,13 @@ class GpuPeak(threading.Thread):
 
 
 class Server:
-    def __init__(self, key, out_dir):
+    def __init__(self, key, out_dir, ctx=8192):
         self.log = out_dir / "server_time.txt"
         self.model = MODELS[key]
         self.port = free_port()
         server = os.environ.get("LLAMA_SERVER", shutil.which("llama-server") or "llama-server")
         cmd = [server, "-m", str(work_dir("models", "llm") / self.model), "--host", "127.0.0.1", "--port", str(self.port),
-               "-ngl", "99", "-c", "8192", "-np", "1", "--reasoning", "off"]
+               "-ngl", "99", "-c", str(ctx), "-np", "1", "--reasoning", "off"]
         # 8GB 카드에서 26B는 MoE 전문가 일부를 CPU로 내린다(예: KOJA_LLAMA_ARGS="--n-cpu-moe 20")
         cmd += os.environ.get("KOJA_LLAMA_ARGS", "").split()
         # 맥에서는 서버 최대 메모리를 /usr/bin/time 으로 잰다. 윈도우는 nvidia-smi 로 따로 잰다.

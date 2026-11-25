@@ -24,6 +24,9 @@ uv run python diar.py sherpa-campplus@0.9 C0003-002 ...  # pyannote, sherpa-eres
 uv run python evaluate.py qwen-2pass@vad10 pyannote      # STT 결과 [화자 결과]
 uv run python translate.py e4b C0003-002 ...           # 번역: e4b, q9b, g26b → eval/work/mt/<모델>/
 uv run python mt_eval.py e4b q9b g26b                    # chrF·처리 시간·GPU 메모리
+uv run python structure.py e4b C0003-002 ...           # 구조화: whisper-2pass + sherpa-campplus@0.9 → eval/work/struct/<모델>/
+KOJA_SPLIT=1 uv run python structure.py e4b ...          # 구간을 문장 조각으로 나눈 뒤 구조화 → struct/<모델>@sent/
+uv run python struct_eval.py e4b e4b@sent q9b q9b@sent  # 행 재현율·시간·행 경계·질문·무시·검증·처리 시간
 ./run_all.sh stt qwen whisper ...         # 엔진을 하나씩 돌리며 로그·최대 메모리 기록(맥)
 ```
 
@@ -57,3 +60,18 @@ uv run python mt_eval.py e4b q9b g26b                    # chrF·처리 시간·
 ## 번역 평가 방법
 
 입력은 시트 한국어 행, 정답은 시트 일본어(다듬은 최종본이라 참고 지표). chrF는 문자 n-gram 1~6, beta 2, 공백 제외로 말뭉치 단위로 합산한다. 영문 고유명사 유지율은 시트 일본어에 있는 영문 단어가 번역에도 있는 비율이다. GPU 메모리는 맥 IOAccelerator 사용량을 서버 시작 전과 비교한 최대값(시스템 전체 값이라 추정)이다. 1시간 환산은 whisper 한국어 고정 STT의 시간당 글자 수로 계산한다.
+
+## 구조화 평가 방법
+
+`structure.py`는 STT 구간(2회 방식이면 한국어 후보 포함)·화자·시각을 4분 청크(앞뒤 30초 문맥)로 llama-server에 보내 `rows`(kind, segIds)와 `ignoredSegIds`만 JSON 스키마로 받는다. 청크 끝에 걸친 행은 확정하지 않고 다음 청크에서 다시 묻는다. 검증: 모든 구간 ID가 한국어 행·일본어 질문 행·무시 목록 중 어딘가에 오름차순으로 쓰였는지, 각 목록 안에서는 한 번씩인지. 한국어 후보가 있는 구간만 질문 행과 한국어 행에 함께 쓸 수 있다. 틀리면 오류를 알려 주고 3번까지 묻고, 그래도 틀리면 그 청크 구간을 하나씩 LINE으로 남긴다.
+
+`struct_eval.py` 지표(D-032 순서, 정렬은 `evaluate.py`와 같음):
+
+1. **시트 행 재현율**: 시트 한국어 행이 LINE·QUESTION_KO 행의 한국어(±90초)에 60% 이상 정렬되는 비율.
+2. **시간 1초 이내**: 시트 행 글자를 가장 많이 담은 출력 행(대표 행)의 첫 단어 시간과 시트 시각의 차이.
+3. **행 경계 1:1**: 시트 행에 정렬된 글자의 80% 이상이 대표 행에 있고, 그 행이 다른 시트 행의 대표 행이 아닌 비율.
+4. **일본어 질문**: 시트 질문 창(앞뒤 답변 시각 ±5초) 안 QUESTION_JA 행의 일본어에 질문 글자가 30% 이상 정렬되면 검출. 어떤 시트 질문과도 정렬되지 않은 QUESTION_JA 행은 오검출(참고).
+5. **무시**: 시트 행 글자가 30% 이상 든 구간이 무시된 비율. 통역 처리는 화자로 대신 본다(추정): 시트 행이 든 구간의 최빈 화자를 선수, 시트 질문이 든 구간의 최빈 화자를 질문자, 나머지를 통역·관계자로 보고 각 구간이 한국어 행·질문 행·무시 중 어디로 갔는지 센다.
+6. **검증·자원**: 청크 1회 통과율, 재시도, 대체(LINE으로 남긴) 청크, 1시간 환산 처리 시간(오디오 길이 기준), GPU 메모리(맥 IOAccelerator, 추정).
+
+`seg`·`seg@sent`는 기준선(구간·문장 조각 하나 = LINE 행 하나)이다. 문장 조각(`KOJA_SPLIT=1`)은 한국어 쪽 단어(한국어 후보가 있으면 후보)를 문장 끝 부호 단어 뒤에서 나누고, 1차 단어는 시작 시각이 든 조각에 넣는다.
