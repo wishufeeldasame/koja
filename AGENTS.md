@@ -65,7 +65,8 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   src/main/java/module-info.java
   src/main/java/koja/ui    화면 (진입점 KojaApp)
 poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사용법 poc/README.md, 윈도우 측정 poc/WINDOWS.md
-  src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore)
+  src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore), stt.json·diar.json (StageStore)
+  src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 순차 파이프라인 (Pipeline)
   src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
   src/main/java/koja/runtime  ffmpeg 위치, OS별 H.264 인코더
   src/test/java/           JUnit 테스트
@@ -75,8 +76,8 @@ M1 이후 생길 것:
 
 ```
 app/src/main/java/koja/
-  core     파이프라인, 검증기
-  engine   Transcriber / Diarizer / LlmClient / FrameReader 와 구현
+  core     검증기
+  engine   Transcriber / Diarizer / LlmClient / FrameReader 구현
   media    프레임 추출 등 ffmpeg 호출 추가
   runtime  내장 바이너리(번들 ffmpeg 포함)·모델 관리
   export   Google Sheets

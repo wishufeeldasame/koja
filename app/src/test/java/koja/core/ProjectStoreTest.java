@@ -28,10 +28,14 @@ class ProjectStoreTest {
                 Project.VideoType.INTERVIEW_JA,
                 List.of(new Project.Speaker("S1", "선수A", true),
                         new Project.Speaker("S2", "화자 미확인 1", false)),
-                List.of(new Project.SttSegment(1, 398_000, 401_200, "안녕하세요", "ko", "S1")),
+                List.of(new Project.SttSegment(1, 398_000, 401_200, "안녕하세요", "ko", "S1"),
+                        new Project.SttSegment(2, 402_000, 405_000, "こんにちは", "ja", "S2",
+                                List.of(new Project.Word(402_100, 402_900, "こんにちは")),
+                                new Project.KoCandidate("안녕하세요", List.of(new Project.Word(402_100, 402_800, "안녕하세요"))))),
                 List.of(new Row("r1", RowKind.QUESTION_JA, null, null, "질문", "質問", List.of(), List.of()),
                         new Row("r2", RowKind.LINE, 398_000L, "S1", "안녕하세요", "こんにちは",
                                 List.of(1), List.of(Flag.SPEAKER_UNSURE, Flag.TEXT_UNSURE))),
+                List.of(2),
                 "valorant",
                 Map.of("stt", new Project.Stage("dummy", true)));
     }
@@ -68,6 +72,25 @@ class ProjectStoreTest {
         assertTrue(json.contains("화자 미확인 1"), json);
     }
 
+    /** 단어 시간·한국어 후보·무시 목록이 생기기 전에 저장한 파일(D-048). */
+    @Test
+    void loadsFileWithoutOptionalFields() throws IOException {
+        Path file = tmp.resolve("project.json");
+        Files.writeString(file, """
+                {"version": 1, "source": {"path": "a.mp4", "durationMs": 1000}, "speakers": [],
+                 "sttSegments": [{"id": 1, "startMs": 0, "endMs": 500, "text": "가", "lang": "ko", "speakerId": null}],
+                 "rows": [], "stages": {"import": {"engine": "ffmpeg", "done": true}}}
+                """, StandardCharsets.UTF_8);
+
+        Project p = ProjectStore.load(file);
+
+        assertEquals(List.of(), p.ignoredSegIds());
+        assertEquals(List.of(), p.sttSegments().get(0).words());
+        assertEquals(null, p.sttSegments().get(0).ko());
+        ProjectStore.save(p, file);
+        assertEquals(p, ProjectStore.load(file));
+    }
+
     @Test
     void rejectsOtherVersion() throws IOException {
         Path file = tmp.resolve("project.json");
@@ -101,7 +124,7 @@ class ProjectStoreTest {
         Path file = tmp.resolve("project.json");
         ProjectStore.save(sample(), file);
         Project broken = new Project(Project.CURRENT_VERSION, sample().source(), null, null,
-                List.of(), List.of(), null, null, Map.of());
+                List.of(), List.of(), null, List.of(), null, Map.of());
 
         assertThrows(IOException.class, () -> ProjectStore.save(broken, file));
         assertEquals(sample(), ProjectStore.load(file));

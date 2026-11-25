@@ -8,6 +8,9 @@ public final class ProjectFiles {
     public static final String PROXY = "proxy.mp4";
     /** STT 입력(16kHz 모노). */
     public static final String AUDIO = "audio.wav";
+    /** 단계 결과 파일(설계 5장). */
+    public static final String STT = "stt.json";
+    public static final String DIAR = "diar.json";
 
     private ProjectFiles() {}
 
