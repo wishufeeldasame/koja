@@ -11,59 +11,50 @@ set -euo pipefail
 OUT="${1:-app/build/llama}"
 CUDA_OUT="${2:-app/build/cuda}"
 
-norm_path() { # 상대·`.`·`..`·끝 슬래시·윈도우 표기(/c vs C:)와 상위 심볼릭 링크를 실제 경로 기준으로 정규화한다.
+norm_path() { # 상대·`.`·`..`·윈도우 표기(/c vs C:)와 심볼릭 링크를 세그먼트 단위로 물리 경로까지 해소한다.
   local p="$1"
   if command -v cygpath > /dev/null 2>&1; then
     p=$(cygpath -u "$p")
   fi
   p="${p//\\//}"
-  if [[ "$p" != /* && "$p" != [A-Za-z]:/* ]]; then
-    p="$PWD/$p"
-  fi
-  local prefix=""
+  local cur
   if [[ "$p" == [A-Za-z]:/* ]]; then
-    prefix="${p:0:2}"
+    cur="${p:0:2}"
     p="${p:2}"
+  elif [[ "$p" == /* ]]; then
+    cur=""
+  else
+    cur=$(pwd -P)
+    cur="${cur%/}"
   fi
-  local -a parts out=()
+  local -a parts
   IFS='/' read -r -a parts <<< "$p"
   local part
   for part in "${parts[@]}"; do
     if [ -z "$part" ] || [ "$part" = "." ]; then
       continue
     elif [ "$part" = ".." ]; then
-      [ "${#out[@]}" -gt 0 ] && unset 'out[${#out[@]}-1]'
+      if [ -n "$cur" ] && [ -d "$cur" ]; then
+        cur=$(cd "$cur" && pwd -P)
+        cur="${cur%/}"
+      fi
+      if [[ "$cur" == [A-Za-z]: ]]; then
+        continue
+      fi
+      if [[ "$cur" == */* ]]; then
+        cur="${cur%/*}"
+      else
+        cur=""
+      fi
     else
-      out+=("$part")
+      cur="$cur/$part"
+      if [ -d "$cur" ]; then
+        cur=$(cd "$cur" && pwd -P)
+        cur="${cur%/}"
+      fi
     fi
   done
-  local IFS='/'
-  local logical
-  logical=$(printf '%s/%s' "$prefix" "${out[*]}")
-
-  # 아직 없는 하위 경로라도 가장 가까운 기존 상위 폴더의 심볼릭 링크를 풀어 물리 경로로 맞춘다.
-  local cur="$logical"
-  local tail=""
-  while [ ! -d "$cur" ]; do
-    local parent="${cur%/*}"
-    local base="${cur##*/}"
-    [ "$parent" != "$cur" ] || break
-    cur="${parent:-/}"
-    tail="${tail:+$base/$tail}"
-    [ -n "$tail" ] || tail="$base"
-  done
-  if [ -d "$cur" ]; then
-    local real_dir
-    real_dir=$(cd "$cur" && pwd -P)
-    real_dir="${real_dir%/}"
-    if [ -n "$tail" ]; then
-      printf '%s/%s' "$real_dir" "$tail"
-    else
-      printf '%s' "${real_dir:-/}"
-    fi
-  else
-    printf '%s' "$logical"
-  fi
+  printf '%s' "${cur:-/}"
 }
 
 LLAMA_TAG=b12655
@@ -117,6 +108,11 @@ case "$(uname -s)" in
     ;;
 esac
 
+# 출력 경로 자체가 심볼릭 링크면 먼저 거부하고(끝 슬래시 제거 후 확인), 상위 링크·`..`까지 푼 물리 경로로 비교·배치를 통일한다.
+out_raw="${OUT%/}"
+cuda_raw="${CUDA_OUT%/}"
+[ ! -L "${out_raw:-/}" ] || { echo "출력 경로가 디렉터리가 아니라서 덮어쓰지 않는다: $OUT" >&2; exit 1; }
+[ ! -L "${cuda_raw:-/}" ] || { echo "출력 경로가 디렉터리가 아니라서 덮어쓰지 않는다: $CUDA_OUT" >&2; exit 1; }
 out_abs=$(norm_path "$OUT")
 cuda_abs_check=$(norm_path "$CUDA_OUT")
 out_cmp="$out_abs"
@@ -129,6 +125,8 @@ if [ "$out_cmp" = "$cuda_cmp" ] || [[ "$out_cmp" == "$cuda_cmp"/* ]] || [[ "$cud
   echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
   exit 1
 fi
+OUT="$out_abs"
+CUDA_OUT="$cuda_abs_check"
 
 sha256() {
   if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
@@ -154,7 +152,7 @@ check_ours_llama() { # dir
   [ -n "$(ls -A "$1")" ] || return 0
   local head_line
   head_line=$(head -1 "$1/NOTICE.txt" 2> /dev/null || true)
-  if [[ "$head_line" == "llama.cpp "*"(koja 번들)" ]] \
+  if [[ "$head_line" == "llama.cpp "*"koja 번들)" ]] \
     || [ "$(cat "$1/.koja-llama-bundle" 2> /dev/null || true)" = "koja-llama-bundle-v1" ]; then
     return 0
   fi
@@ -169,7 +167,8 @@ check_ours_cuda() { # dir
     exit 1
   fi
   [ -n "$(ls -A "$1")" ] || return 0
-  if [[ "$(head -1 "$1/NOTICE.txt" 2> /dev/null || true)" != "NVIDIA CUDA "* ]]; then
+  if [[ "$(head -1 "$1/NOTICE.txt" 2> /dev/null || true)" != "NVIDIA CUDA "* ]] \
+    || ! grep -qF "(koja D-060)" "$1/NOTICE.txt" 2> /dev/null; then
     echo "이 스크립트가 만든 CUDA 폴더가 아니라서 덮어쓰지 않는다: $1" >&2
     exit 1
   fi
