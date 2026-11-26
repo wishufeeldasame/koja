@@ -7,9 +7,24 @@
 # SHA-256을 확인한다. NOTICE.txt가 같으면 받기를 건너뛰고 검사만 한다.
 # 새로 만들 때는 임시 폴더에서 만들고 검사를 통과한 뒤에만 OUT(및 필요 시 CUDA_OUT)을 바꾼다.
 set -euo pipefail
+unset CDPATH
 
 OUT="${1:-app/build/llama}"
 CUDA_OUT_ARG="${2-}"
+
+parent_dir() { # os=win에서만 역슬래시를 구분자로 정규화하고 끝 슬래시를 제거한 뒤 상위 디렉터리를 반환한다.
+  local p="$1"
+  [ "$os" = win ] && p="${p//\\//}"
+  while [ "${#p}" -gt 1 ] && [[ "$p" == */ ]]; do
+    p="${p%/}"
+  done
+  local d
+  d=$(dirname -- "$p")
+  if [ "$os" = win ] && [[ "$d" == [A-Za-z]: ]]; then
+    d="$d/"
+  fi
+  printf '%s' "$d"
+}
 
 reject_bad_target() { # 심볼릭 링크·끝 `.`/`..` 세그먼트·윈도우 UNC 경로를 배치 전에 거부한다.
   local raw="$1"
@@ -59,7 +74,7 @@ norm_path() { # 상대·`.`·`..`·윈도우 표기(/c vs C:)와 심볼릭 링�
       continue
     elif [ "$part" = ".." ]; then
       if [ -n "$cur" ] && [ -d "$cur" ]; then
-        cur=$(cd "$cur" && pwd -P)
+        cur=$(cd -- "$cur" && pwd -P)
         cur="${cur%/}"
       fi
       if [ "$os" = win ] && [[ "$cur" == [A-Za-z]: ]]; then
@@ -73,7 +88,7 @@ norm_path() { # 상대·`.`·`..`·윈도우 표기(/c vs C:)와 심볼릭 링�
     else
       cur="$cur/$part"
       if [ -d "$cur" ]; then
-        cur=$(cd "$cur" && pwd -P)
+        cur=$(cd -- "$cur" && pwd -P)
         cur="${cur%/}"
       fi
     fi
@@ -132,41 +147,28 @@ case "$(uname -s)" in
     ;;
 esac
 
-# 둘째 인자를 생략하면 OUT 형제 cuda/를 기본값으로 쓴다(기본 OUT=app/build/llama → app/build/cuda, D-060·D-069).
-if [ -n "$CUDA_OUT_ARG" ]; then
-  CUDA_OUT="$CUDA_OUT_ARG"
-else
-  out_for_parent="$OUT"
-  [ "$os" = win ] && out_for_parent="${out_for_parent//\\//}"
-  while [ "${#out_for_parent}" -gt 1 ] && [[ "$out_for_parent" == */ ]]; do
-    out_for_parent="${out_for_parent%/}"
-  done
-  out_dir=$(dirname "$out_for_parent")
-  if [ "$out_dir" = "/" ]; then
-    CUDA_OUT="/cuda"
+# 출력 경로의 심볼릭 링크·끝 `.`/`..`·UNC를 먼저 거부한다. CUDA 출력 경로와 중첩 비교는 윈도우에서만 실행한다.
+reject_bad_target "$OUT"
+CUDA_OUT=""
+if [ "$os" = win ]; then
+  # 둘째 인자를 생략하면 OUT 형제 cuda/를 기본값으로 쓴다(기본 OUT=app/build/llama → app/build/cuda, D-060·D-069).
+  if [ -n "$CUDA_OUT_ARG" ]; then
+    CUDA_OUT="$CUDA_OUT_ARG"
   else
-    CUDA_OUT="$out_dir/cuda"
+    out_dir=$(parent_dir "$OUT")
+    CUDA_OUT="${out_dir%/}/cuda"
+  fi
+  reject_bad_target "$CUDA_OUT"
+  out_cmp=$(norm_path "$OUT" | tr '[:upper:]' '[:lower:]')
+  cuda_cmp=$(norm_path "$CUDA_OUT" | tr '[:upper:]' '[:lower:]')
+  if [ "$out_cmp" = "$cuda_cmp" ] || [[ "$out_cmp" == "$cuda_cmp"/* ]] || [[ "$cuda_cmp" == "$out_cmp"/* ]]; then
+    echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
+    exit 1
   fi
 fi
 
-# 출력 경로의 심볼릭 링크·끝 `.`/`..`·UNC를 먼저 거부하고, 상위 링크·`..`까지 푼 물리 경로로 중첩 여부를 비교한다.
-reject_bad_target "$OUT"
-reject_bad_target "$CUDA_OUT"
-out_abs=$(norm_path "$OUT")
-cuda_abs_check=$(norm_path "$CUDA_OUT")
-out_cmp="$out_abs"
-cuda_cmp="$cuda_abs_check"
-if [ "$os" = win ]; then
-  out_cmp=$(printf '%s' "$out_cmp" | tr '[:upper:]' '[:lower:]')
-  cuda_cmp=$(printf '%s' "$cuda_cmp" | tr '[:upper:]' '[:lower:]')
-fi
-if [ "$out_cmp" = "$cuda_cmp" ] || [[ "$out_cmp" == "$cuda_cmp"/* ]] || [[ "$cuda_cmp" == "$out_cmp"/* ]]; then
-  echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
-  exit 1
-fi
-
-sha256() {
-  if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+sha256() { # 표준 입력으로 넘겨 역슬래시가 든 경로에서도 GNU sha256sum이 해시 앞에 `\`를 붙이지 않게 한다.
+  if command -v sha256sum > /dev/null; then sha256sum -b < "$1"; else shasum -a 256 < "$1"; fi | cut -d' ' -f1
 }
 
 download() { # url sha256 dest
@@ -355,7 +357,7 @@ else
     [ ! -f "$stage/$f" ] || { echo "CUDA 런타임 DLL이 llama 폴더에 중복됨: $f" >&2; exit 1; }
   done
   cuda_ready "$cuda_stage" || { echo "공유 CUDA 폴더 검증 실패(파일 누락 또는 SHA-256 불일치): $cuda_stage" >&2; exit 1; }
-  cuda_abs=$(cd "$cuda_stage" && pwd)
+  cuda_abs=$(cd -- "$cuda_stage" && pwd -P)
   ver=$(PATH="$cuda_abs:$PATH" "$bin" --version 2>&1)
   grep -q "build $LLAMA_BUILD" <<< "$ver" || { echo "버전 불일치: $ver" >&2; exit 1; }
   printf '%s\n' "$ver" | head -n 2
@@ -363,12 +365,12 @@ fi
 
 if [ "$stage" != "$OUT" ]; then
   rm -rf "$OUT"
-  mkdir -p "$(dirname "$OUT")"
+  mkdir -p "$(parent_dir "$OUT")"
   mv "$stage" "$OUT"
 fi
 if [ "$os" = win ] && [ "$cuda_stage" != "$CUDA_OUT" ]; then
   rm -rf "$CUDA_OUT"
-  mkdir -p "$(dirname "$CUDA_OUT")"
+  mkdir -p "$(parent_dir "$CUDA_OUT")"
   mv "$cuda_stage" "$CUDA_OUT"
 fi
 echo "검사 통과: llama-server $LLAMA_TAG → $OUT"
