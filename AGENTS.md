@@ -66,7 +66,7 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   src/main/java/koja/ui    화면 (진입점 KojaApp)
 poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사용법 poc/README.md, 윈도우 측정 poc/WINDOWS.md
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore), stt.json·diar.json (StageStore)
-  src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 로컬 LLM 클라이언트(LlamaServerClient, LlamaModel), 순차 파이프라인 (Pipeline)
+  src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 로컬 LLM 클라이언트(LlamaServerClient, LlamaModel), 순차 파이프라인 (Pipeline), sherpa-onnx 로컬 VAD(Vad)·CAM++ 화자 구분(SherpaDiarizer)·모델 명세(SherpaModels)·네이티브 로더(SherpaNative)·WAV 읽기(WavAudio)
   src/main/java/koja/engine/whisper  로컬 STT 2회 방식 (WhisperTranscriber: whisper-server 호출, 응답 파싱, WAV 자르기)
   src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
   src/main/java/koja/runtime  ffmpeg 위치·인코더(Ffmpeg), whisper-server 위치·실행·모델(WhisperServer), llama-server 위치(LlamaServer), 데이터·모델 경로(AppPaths), 모델 다운로드(ModelStore), 로컬 HTTP 서버(LocalServer), OS 비밀값 보관(SecretStore)
@@ -111,7 +111,7 @@ samples/        샘플 영상·정답 시트, README.md(외부 전송 허용 표
 python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본과 맞는지
 ./gradlew run        # 앱 실행
 ./gradlew test       # 테스트 (ffmpeg가 PATH에 없으면 가져오기 테스트는 건너뜀)
-./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
+./gradlew build      # 컴파일 + 테스트 + JPMS 모듈 경로 네이티브 로딩 확인(verifyModuleNativeLoad) (CI build.yml이 맥·윈도우에서 돌림)
 scripts/bundle_ffmpeg.sh   # 설치파일에 넣을 LGPL ffmpeg를 app/build/ffmpeg에 (맥: 소스 빌드 약 1분, 윈도우: Git Bash에서 다운로드)
 scripts/bundle_whisper.sh  # 설치파일에 넣을 whisper-server를 app/build/whisper에 (맥: CMake로 Metal 소스 빌드 약 30초, 윈도우: CUDA 12.4 빌드 735MB 다운로드, CUDA DLL은 app/build/cuda)
 scripts/bundle_llama.sh    # llama.cpp b12655 llama-server를 app/build/llama에 (맥 arm64 Metal / 윈도우 x64 CUDA, jpackage·CI 연결은 W2-2b 병합 후 후속 PR)
