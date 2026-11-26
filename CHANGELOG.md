@@ -38,8 +38,10 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - `prompt-engineer` 프로젝트 에이전트 추가(`.agents/agents/prompt-engineer.md`, D-015) 및 도구별 동기화 생성물, `AGENTS.md` 에이전트 표 갱신
 - M3 구조화 스펙 확정 및 재측정(`poc/structure.py`, `poc/struct_eval.py`, `poc/README.md`, 설계 4·7.3·9장): 1단계 영상 유형·화자 역할 분석 + 2단계 구간 1:1 평탄 고정 순서 JSON 스키마·과병합 방지·기본 플래그 보강(D-053), 1차 언어 인식 문장·화자·한국어 절 분할(`clause`) 및 기본 VAD 유지(D-054), 최대 24구간·3분·앞뒤 6구간(30초)·8K 컨텍스트(D-055). Gemma 4 E4B 검증 1회 통과 100%(42/42·51/51), 대체 청크 0 달성
 - `llama-server` 번들 준비 스크립트(`scripts/bundle_llama.sh`: `b12655` 고정·SHA-256·`LICENSE`/`NOTICE.txt`, `koja.runtime.LlamaServer`, D-065; jpackage·CI·CUDA DLL 공유 연결은 W2-2b 병합 후 후속 PR)와 로컬 `LlmClient` 구현(`LlamaServerClient`, `LlamaChatProtocol`, `LlamaModel`: OpenAI 호환 API·JSON 스키마 강제·`--reasoning off`·`-ngl auto`·8K 컨텍스트·Gemma 4 E4B 기본/26B 선택·OOM/컨텍스트 초과 분류·일시 오류 재시도, D-066·D-067) 및 단위 테스트
+- `sherpa-onnx` Java 2.0.3 연동(`app/build.gradle.kts`, `module-info.java`, `koja.engine`): GitHub Releases SHA-256 검증·빌드 시 `module-info.class` 주입·`sherpa-native` jpackage 번들·JPMS 네이티브 로딩 검증(`verifyModuleNativeLoad`, D-062). 로컬 Silero VAD(`Vad`, 기본 VAD 유지 D-063)와 CAM++ 화자 구분(`SherpaDiarizer`, 군집 기준값 `0.90` D-064), `ModelStore` 모델 명세(`SherpaModels`), 순수 Java 16kHz WAV 리더(`WavAudio`), `AppPaths.bundledDirectory` 및 단위 테스트 추가
 
 ### 변경
+- `Pipeline.withSpeakers`: STT 구간에 단어 시간(`words`)이 있으면 단어 구간 합집합과 화자 턴의 겹침을 먼저 계산하고, 없거나 겹침이 0이면 전체 구간으로 폴백하도록 개선(D-064)
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙
 - 설계 4단계를 "ja 구간 일본어 재전사"에서 "비한국어 구간 한국어 재전사"로, 행 `startMs`를 첫 단어 시간으로 바꿈(D-040). D-006(보류)을 D-039로 대체
 - 라이선스를 두지 않기로 함(개인용, D-029). D-021(보류)을 대체

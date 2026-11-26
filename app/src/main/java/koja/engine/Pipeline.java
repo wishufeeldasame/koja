@@ -146,7 +146,9 @@ public final class Pipeline {
     }
 
     /**
-     * 구간마다 겹치는 시간이 가장 긴 화자를 붙인다(설계 4장 3단계). 같은 화자의 턴끼리 겹친 시간은 한 번만 센다.
+     * 구간마다 겹치는 시간이 가장 긴 화자를 붙인다(설계 4장 3단계, D-064).
+     * 단어 시간({@code words})이 있으면 단어 구간 합집합과 화자 턴의 겹침을 먼저 보고, 단어가 없거나 겹침이 0이면
+     * 전체 구간 {@code [startMs, endMs]}로 폴백한다. 같은 화자의 턴끼리 겹친 시간은 한 번만 센다.
      * 겹침이 없으면 null(모르면 비움, 절대 규칙 2). 화자 라벨은 처음 나온 순서로 S1, S2 …가 된다.
      * 화자 구분을 새로 돌렸으면(newDiar) 라벨과 사람이 같다는 보장이 없어 그 id들의 화자표 항목을 미확인으로 다시 만든다.
      * 같은 diar.json이면 매핑도 같으므로 사람이 고친 이름을 그대로 둔다.
@@ -161,15 +163,7 @@ public final class Pipeline {
 
         List<SttSegment> segments = new ArrayList<>();
         for (SttSegment s : stt.segments()) {
-            String best = null;
-            long bestMs = 0;
-            for (String speaker : ids.keySet()) {
-                long ms = overlap(s, turns, speaker);
-                if (ms > bestMs) {
-                    best = speaker;
-                    bestMs = ms;
-                }
-            }
+            String best = bestSpeaker(s, turns, ids);
             segments.add(s.withSpeaker(best == null ? null : ids.get(best)));
         }
 
@@ -190,19 +184,84 @@ public final class Pipeline {
                 List.copyOf(segments), p.rows(), p.ignoredSegIds(), p.glossary(), p.stages());
     }
 
-    /** turns는 startMs 순. 구간 안으로 자른 그 화자 턴들의 합집합 길이. */
-    private static long overlap(SttSegment s, List<Turn> turns, String speaker) {
-        long total = 0;
-        long covered = s.startMs();
-        for (Turn t : turns) {
-            if (!t.speaker().equals(speaker)) {
+    private static String bestSpeaker(SttSegment s, List<Turn> turns, Map<String, String> ids) {
+        List<long[]> wordSpans = mergedWordSpans(s);
+        if (!wordSpans.isEmpty()) {
+            String best = bestSpeakerForSpans(wordSpans, turns, ids);
+            if (best != null) {
+                return best;
+            }
+        }
+        return bestSpeakerForSpans(List.of(new long[] { s.startMs(), s.endMs() }), turns, ids);
+    }
+
+    private static String bestSpeakerForSpans(List<long[]> spans, List<Turn> turns, Map<String, String> ids) {
+        String best = null;
+        long bestMs = 0;
+        for (String speaker : ids.keySet()) {
+            long ms = overlapSpans(spans, turns, speaker);
+            if (ms > bestMs) {
+                best = speaker;
+                bestMs = ms;
+            }
+        }
+        return best;
+    }
+
+    /** 단어 시각을 부모 STT 구간 안으로 자른 뒤 정렬·병합해 겹치지 않는 [startMs, endMs] 목록으로 만든다. */
+    private static List<long[]> mergedWordSpans(SttSegment segment) {
+        List<Project.Word> words = segment.words();
+        if (words == null || words.isEmpty()) {
+            return List.of();
+        }
+        List<long[]> raw = new ArrayList<>(words.size());
+        for (Project.Word w : words) {
+            if (w == null) {
                 continue;
             }
-            long from = Math.max(covered, t.startMs());
-            long to = Math.min(s.endMs(), t.endMs());
-            if (to > from) {
-                total += to - from;
-                covered = to;
+            long start = Math.max(segment.startMs(), w.startMs());
+            long end = Math.min(segment.endMs(), w.endMs());
+            if (end > start) {
+                raw.add(new long[] { start, end });
+            }
+        }
+        if (raw.isEmpty()) {
+            return List.of();
+        }
+        raw.sort(Comparator.comparingLong(a -> a[0]));
+        List<long[]> merged = new ArrayList<>(raw.size());
+        long[] cur = raw.get(0);
+        for (int i = 1; i < raw.size(); i++) {
+            long[] next = raw.get(i);
+            if (next[0] <= cur[1]) {
+                cur[1] = Math.max(cur[1], next[1]);
+            } else {
+                merged.add(cur);
+                cur = next;
+            }
+        }
+        merged.add(cur);
+        return merged;
+    }
+
+    /** turns와 spans 모두 startMs 순(비겹침 spans). 각 span 안으로 자른 그 화자 턴들의 합집합 길이 합. */
+    private static long overlapSpans(List<long[]> spans, List<Turn> turns, String speaker) {
+        long total = 0;
+        for (long[] span : spans) {
+            long covered = span[0];
+            for (Turn t : turns) {
+                if (!t.speaker().equals(speaker)) {
+                    continue;
+                }
+                if (t.startMs() >= span[1]) {
+                    break;
+                }
+                long from = Math.max(covered, t.startMs());
+                long to = Math.min(span[1], t.endMs());
+                if (to > from) {
+                    total += to - from;
+                    covered = to;
+                }
             }
         }
         return total;

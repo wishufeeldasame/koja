@@ -119,6 +119,40 @@ class PipelineTest {
     }
 
     @Test
+    void prefersWordSpansOverFullSegmentWhenWordsExist() {
+        // 구간 전체(0~10초)에서는 A(0~6초)가 길지만, 실제 단어(7~9.5초)는 B(6~10초) 구간에 있다.
+        List<Project.Word> words = List.of(
+                new Project.Word(7_000, 8_200, "안녕"),
+                new Project.Word(8_000, 9_500, "하세요"));
+        SttResult stt = new SttResult(1, "x", List.of(
+                new SttSegment(1, 0, 10_000, "안녕하세요", "ko", null, words, null),
+                // 단어가 턴과 안 겹치면 전체 구간으로 폴백한다.
+                new SttSegment(2, 0, 10_000, "폴백", "ko", null, List.of(new Project.Word(11_000, 12_000, "폴백")), null)));
+        DiarResult diar = new DiarResult(1, "x", List.of(
+                new Turn(0, 6_000, "A"), new Turn(6_000, 10_000, "B")));
+        Project p = new Project(Project.CURRENT_VERSION, new Project.Source("a.mp4", 0), null, null,
+                List.of(), List.of(), List.of(), List.of(), null, Map.of());
+
+        List<SttSegment> assigned = Pipeline.withSpeakers(p, stt, diar, true).sttSegments();
+        assertEquals("S2", assigned.get(0).speakerId());
+        assertEquals("S1", assigned.get(1).speakerId());
+    }
+
+    @Test
+    void clampsWordSpansToParentSegmentBounds() {
+        // 구간은 0~1000ms인데 마지막 단어가 950~1200ms로 구간 밖까지 뻗어도 부모 구간 안(950~1000ms, A)만 센다.
+        SttResult stt = new SttResult(1, "x", List.of(
+                new SttSegment(1, 0, 1_000, "끝", "ko", null,
+                        List.of(new Project.Word(950, 1_200, "끝")), null)));
+        DiarResult diar = new DiarResult(1, "x", List.of(
+                new Turn(0, 1_000, "A"), new Turn(1_000, 2_000, "B")));
+        Project p = new Project(Project.CURRENT_VERSION, new Project.Source("a.mp4", 0), null, null,
+                List.of(), List.of(), List.of(), List.of(), null, Map.of());
+
+        assertEquals("S1", Pipeline.withSpeakers(p, stt, diar, true).sttSegments().get(0).speakerId());
+    }
+
+    @Test
     void interruptBetweenStagesCancelsBeforeSaving() throws Exception {
         Path file = newProject(List.of());
         Pipeline.Opener<Transcriber> interrupting = () -> new FakeStt() {
