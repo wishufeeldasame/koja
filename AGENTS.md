@@ -57,7 +57,7 @@ docs/           공개 문서 (설계, 결정 기록)
   private/      비공개 문서 (커밋 금지)
 .agents/agents/ 프로젝트 에이전트 원본
 .claude/ .codex/ .opencode/   도구별 에이전트 파일 (생성물)
-scripts/        저장소 관리 스크립트 (sync_agents.py, bundle_ffmpeg.sh, bundle_llama.sh)
+scripts/        저장소 관리 스크립트 (sync_agents.py, bundle_ffmpeg.sh, bundle_whisper.sh, bundle_llama.sh)
 .github/        PR 양식, CI (pr-checks.yml, build.yml)
 settings.gradle.kts, gradlew, gradle/   Gradle 빌드 (Kotlin DSL)
 app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
@@ -67,8 +67,9 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
 poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사용법 poc/README.md, 윈도우 측정 poc/WINDOWS.md
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore), stt.json·diar.json (StageStore)
   src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 로컬 LLM 클라이언트(LlamaServerClient, LlamaModel), 순차 파이프라인 (Pipeline)
+  src/main/java/koja/engine/whisper  로컬 STT 2회 방식 (WhisperTranscriber: whisper-server 호출, 응답 파싱, WAV 자르기)
   src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
-  src/main/java/koja/runtime  ffmpeg 위치·인코더(Ffmpeg), llama-server 위치(LlamaServer), 데이터·모델 경로(AppPaths), 모델 다운로드(ModelStore), 로컬 HTTP 서버(LocalServer), OS 비밀값 보관(SecretStore)
+  src/main/java/koja/runtime  ffmpeg 위치·인코더(Ffmpeg), whisper-server 위치·실행·모델(WhisperServer), llama-server 위치(LlamaServer), 데이터·모델 경로(AppPaths), 모델 다운로드(ModelStore), 로컬 HTTP 서버(LocalServer), OS 비밀값 보관(SecretStore)
   src/main/java/koja/export   구글 OAuth 로그인(루프백 + PKCE), drive.file PoC(DriveFolderPoc)
   src/test/java/           JUnit 테스트
 ```
@@ -112,13 +113,14 @@ python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본�
 ./gradlew test       # 테스트 (ffmpeg가 PATH에 없으면 가져오기 테스트는 건너뜀)
 ./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
 scripts/bundle_ffmpeg.sh   # 설치파일에 넣을 LGPL ffmpeg를 app/build/ffmpeg에 (맥: 소스 빌드 약 1분, 윈도우: Git Bash에서 다운로드)
+scripts/bundle_whisper.sh  # 설치파일에 넣을 whisper-server를 app/build/whisper에 (맥: CMake로 Metal 소스 빌드 약 30초, 윈도우: CUDA 12.4 빌드 735MB 다운로드, CUDA DLL은 app/build/cuda)
 scripts/bundle_llama.sh    # llama.cpp b12655 llama-server를 app/build/llama에 (맥 arm64 Metal / 윈도우 x64 CUDA, jpackage·CI 연결은 W2-2b 병합 후 후속 PR)
 ./gradlew oauthPoc --args="<폴더 ID>"   # 실제 구글 로그인 후 drive.file로 시트를 만들 수 있는 위치 확인(KOJA_GOOGLE_CLIENT_ID·KOJA_GOOGLE_CLIENT_SECRET 필요, CI에서 안 돌림)
-./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3. app/build/ffmpeg가 없으면 실패
+./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3. app/build/ffmpeg·whisper(윈도우는 cuda도)가 없으면 실패
 ```
 
 - 윈도우에서는 `gradlew.bat`을 쓴다.
-- 윈도우에서 `.msi`를 직접 만들려면 [WiX Toolset](https://wixtoolset.org/)이 설치되어 있고 PATH에 있어야 한다(jpackage가 요구). 맥 `.dmg`는 추가 도구가 필요 없다. 맥에서 ffmpeg를 빌드하려면 Xcode 명령줄 도구가 있어야 한다.
+- 윈도우에서 `.msi`를 직접 만들려면 [WiX Toolset](https://wixtoolset.org/)이 설치되어 있고 PATH에 있어야 한다(jpackage가 요구). 맥 `.dmg`는 추가 도구가 필요 없다. 맥에서 ffmpeg를 빌드하려면 Xcode 명령줄 도구가, whisper-server를 빌드하려면 CMake도 있어야 한다(`brew install cmake` 또는 `uv tool install cmake`).
 - JDK 25가 없어도 된다. Gradle 툴체인이 처음 빌드할 때 받아 `~/.gradle/jdks`에 둔다. Gradle을 실행할 JDK(17 이상)는 있어야 한다.
 
 - 새 로직(파서, 검증기, 시간 변환, 행 묶기)에는 작은 단위 테스트를 붙인다.

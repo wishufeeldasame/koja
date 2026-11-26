@@ -32,6 +32,8 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - `koja.engine` 단계 엔진 계약(`Engine`, `Transcriber`, `Diarizer`, `LlmClient`, `FrameReader`)과 순차 파이프라인 골격(`Pipeline`: STT → 화자 구분 → 구간에 화자 붙이기, 끝난 단계 건너뛰기, D-049)
 - 단계 결과 파일 `stt.json`·`diar.json` 읽기·쓰기와 검사(`koja.core.StageStore`, D-048). `project.json`에 `ignoredSegIds`, STT 구간 단어 시간 `words`·한국어 후보 `ko` 선택 항목 추가. 옛 파일은 그대로 읽는다(D-048)
 - `koja.runtime` 공통 인프라: OS별 데이터·모델 경로(`AppPaths`), Hugging Face 모델 다운로드·Range 이어 받기·취소·SHA-256 검증·원자적 이동(`ModelStore`, D-050), `whisper-server`/`llama-server` 공용 로컬 HTTP 서버 수명주기(`LocalServer`: 동적 포트·프록시 우회·헬스체크·프로세스 트리 정리, D-051)와 단위 테스트
+- 설치파일에 whisper.cpp b5907 `whisper-server` 번들: `scripts/bundle_whisper.sh`(맥 Metal 정적 소스 빌드, 윈도우 공식 CUDA 12.4 빌드, SHA-256·링크·실행 검사, 번들 폴더 안 고지 파일), CI 캐시와 설치파일 안 확인. 윈도우 CUDA 런타임 DLL은 `<설치 폴더>/cuda/`에 두고 llama-server와 공유(D-059, D-060)
+- 로컬 STT 2회 방식 `WhisperTranscriber`(`koja.engine.whisper`): VAD 구간별 자동 언어 전사 + 비한국어 구간 한국어 재전사(`ko` 후보), 단어 시간 파싱, `stt.json` 스키마 결과. 서버 실행·모델 명세는 `koja.runtime.WhisperServer`(D-061)
 - 구글 로그인(`koja.export.GoogleAuth`): OAuth Desktop 루프백(127.0.0.1) + PKCE, 스코프 `drive.file`, 클라이언트는 환경 변수(D-058). 리프레시 토큰은 `koja.runtime.SecretStore`(맥 Keychain / 윈도우 DPAPI, D-056)에 저장. `drive.file` 폴더 확인용 `./gradlew oauthPoc`. 실측 결과 사용자가 고른 기존 폴더(내 드라이브)에도 시트 생성 가능(D-057)
 - `prompt-engineer` 프로젝트 에이전트 추가(`.agents/agents/prompt-engineer.md`, D-015) 및 도구별 동기화 생성물, `AGENTS.md` 에이전트 표 갱신
 - M3 구조화 스펙 확정 및 재측정(`poc/structure.py`, `poc/struct_eval.py`, `poc/README.md`, 설계 4·7.3·9장): 1단계 영상 유형·화자 역할 분석 + 2단계 구간 1:1 평탄 고정 순서 JSON 스키마·과병합 방지·기본 플래그 보강(D-053), 1차 언어 인식 문장·화자·한국어 절 분할(`clause`) 및 기본 VAD 유지(D-054), 최대 24구간·3분·앞뒤 6구간(30초)·8K 컨텍스트(D-055). Gemma 4 E4B 검증 1회 통과 100%(42/42·51/51), 대체 청크 0 달성

@@ -75,13 +75,18 @@ tasks.register<Exec>("jpackage") {
     val outDir = layout.buildDirectory.dir("jpackage").get().asFile
     val runtimeJars = configurations.runtimeClasspath
     val appJar = tasks.jar.flatMap { it.archiveFile }
-    // scripts/bundle_ffmpeg.sh가 만든다. 앱 안에서는 맥 Contents/ffmpeg, 윈도우 <앱 폴더>/ffmpeg가 된다(D-042).
-    val ffmpegDir = layout.buildDirectory.dir("ffmpeg").get().asFile
+    // scripts/bundle_*.sh가 만든다. 앱 안에서는 맥 Contents/<폴더>, 윈도우 <앱 폴더>/<폴더>가 된다(D-042, D-059).
+    // 폴더 → 들어 있어야 할 파일. cuda/는 윈도우만 있다(whisper-server·llama-server가 함께 쓰는 CUDA 런타임, D-060).
+    val exe = if (windows) ".exe" else ""
+    val bundles = linkedMapOf("ffmpeg" to "ffmpeg$exe", "whisper" to "whisper-server$exe")
+    if (windows) bundles["cuda"] = "cudart64_12.dll"
+    val bundleDirs = bundles.mapKeys { layout.buildDirectory.dir(it.key).get().asFile }
 
     doFirst {
-        val exe = if (windows) "ffmpeg.exe" else "ffmpeg"
-        if (!ffmpegDir.resolve(exe).isFile || !ffmpegDir.resolve("NOTICE.txt").isFile) {
-            throw GradleException("번들 ffmpeg가 없다: ${ffmpegDir}. 먼저 scripts/bundle_ffmpeg.sh를 실행한다")
+        for ((dir, file) in bundleDirs) {
+            if (!dir.resolve(file).isFile || !dir.resolve("NOTICE.txt").isFile) {
+                throw GradleException("번들 ${dir.name}이(가) 없다: ${dir}. 먼저 scripts/bundle_ffmpeg.sh, scripts/bundle_whisper.sh를 실행한다")
+            }
         }
         delete(outDir)
         val home = jpackageLauncher.get().metadata.installationPath.asFile
@@ -97,7 +102,7 @@ tasks.register<Exec>("jpackage") {
             "--dest", outDir.path,
             "--module-path", (listOf(appJar.get().asFile) + runtimeJars.get().files).joinToString(File.pathSeparator),
             "--module", "koja/koja.ui.KojaApp",
-            "--app-content", ffmpegDir.path,
+            "--app-content", bundleDirs.keys.joinToString(",") { it.path },
             "--java-options", "-Dfile.encoding=UTF-8",
             "--java-options", "--enable-native-access=javafx.graphics,javafx.media",
         )
