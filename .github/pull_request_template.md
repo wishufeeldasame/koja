@@ -4,7 +4,7 @@
 
 ## 로컬 검사
 
-- [ ] `./gradlew test` 통과
+- [ ] `./gradlew test` 통과 (코드 변경이 없으면 "해당 없음")
 - [ ] `python3 scripts/sync_agents.py --check` 통과
 - [ ] `git diff --stat`으로 `docs/private/`, `samples/`, `eval/results/` 파일이 없는 것 확인
 - [ ] 맥에서 확인
@@ -12,6 +12,8 @@
 - 평가 결과 요약: <!-- 해당 없으면 지운다. 수치만, 전사 예시는 넣지 않는다 -->
 
 ## 리뷰
+
+<!-- 코드 변경이 없는 PR(문서·양식·CI 설정)은 "코드 변경 없음, 리뷰 생략"만 쓰고 아래는 지운다 -->
 
 - 작성한 도구: <!-- Claude Code / Codex / Antigravity / OpenCode -->
 - 리뷰한 도구: <!-- 작성한 도구와 달라야 한다. Codex가 쓴 PR은 Claude Code -->
