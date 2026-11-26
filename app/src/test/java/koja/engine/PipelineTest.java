@@ -137,6 +137,20 @@ class PipelineTest {
     }
 
     @Test
+    void cancelWhileOpeningIsInterrupt() throws Exception {
+        Path file = newProject(List.of());
+        Pipeline.Opener<Transcriber> cancelled = () -> {
+            Thread.currentThread().interrupt();
+            throw new java.util.concurrent.CancellationException("시작 취소");
+        };
+
+        assertThrows(InterruptedException.class, () -> Pipeline.run(file, cancelled, FakeDiar::new, (s, f) -> {}));
+
+        assertFalse(Thread.interrupted());
+        assertFalse(Files.exists(file.resolveSibling(ProjectFiles.STT)));
+    }
+
+    @Test
     void rejectsNestedRunFromProgressCallback() throws Exception {
         Path file = newProject(List.of());
 

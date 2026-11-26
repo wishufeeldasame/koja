@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.DoubleConsumer;
 import koja.core.Project;
@@ -80,7 +81,7 @@ public final class Pipeline {
         if (done(project, STT, sttFile)) {
             sttResult = StageStore.loadStt(sttFile);
         } else {
-            try (Transcriber t = stt.open()) {
+            try (Transcriber t = open(stt)) {
                 sttResult = t.transcribe(audio, progress(listener, STT));
             }
             checkInterrupt();
@@ -95,7 +96,7 @@ public final class Pipeline {
             diarResult = StageStore.loadDiar(diarFile);
         } else {
             checkInterrupt();
-            try (Diarizer d = diar.open()) {
+            try (Diarizer d = open(diar)) {
                 diarResult = d.diarize(audio, progress(listener, DIAR));
             }
             checkInterrupt();
@@ -108,6 +109,18 @@ public final class Pipeline {
         project = withSpeakers(project, sttResult, diarResult, newDiar);
         ProjectStore.save(project, projectFile);
         return project;
+    }
+
+    // LocalServer.start는 시작 중 interrupt를 CancellationException으로 알린다. 취소 계약(D-049)대로 InterruptedException으로 바꾼다.
+    private static <E extends Engine> E open(Opener<? extends E> opener) throws IOException, InterruptedException {
+        try {
+            return opener.open();
+        } catch (CancellationException e) {
+            Thread.interrupted();
+            InterruptedException ie = new InterruptedException("엔진 시작 취소");
+            ie.initCause(e);
+            throw ie;
+        }
     }
 
     private static void checkInterrupt() throws InterruptedException {
