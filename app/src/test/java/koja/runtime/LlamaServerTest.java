@@ -55,7 +55,9 @@ class LlamaServerTest {
 
     @Test
     void clearsLlamaArgAndLogEnvironmentPrefixes() {
-        assertEquals(java.util.List.of("LLAMA_ARG_", "LLAMA_LOG_"), LlamaServer.clearedEnvironmentPrefixes());
+        assertEquals(
+                java.util.List.of("LLAMA_ARG_", "LLAMA_LOG_", "LLAMA_API_KEY"),
+                LlamaServer.clearedEnvironmentPrefixes());
     }
 
     private static Path touch(Path file) throws IOException {

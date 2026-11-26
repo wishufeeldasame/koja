@@ -260,16 +260,18 @@ class LocalServerTest {
         env.put("LLAMA_ARG_CONNECT", "1");
         env.put("llama_arg_log_verbosity", "2");
         env.put("LLAMA_LOG_FILE", "/tmp/x");
+        env.put("LLAMA_API_KEY", "secret-key");
         env.put("KEEP_ME", "yes");
 
         LocalServer.applyEnvironment(
                 env,
-                List.of("LLAMA_ARG_", "LLAMA_LOG_"),
+                List.of("LLAMA_ARG_", "LLAMA_LOG_", "LLAMA_API_KEY"),
                 java.util.Map.of("LLAMA_ARG_CUSTOM", "ok", "ADDED", "2"));
 
         assertFalse(env.containsKey("LLAMA_ARG_CONNECT"));
         assertFalse(env.containsKey("llama_arg_log_verbosity"));
         assertFalse(env.containsKey("LLAMA_LOG_FILE"));
+        assertFalse(env.containsKey("LLAMA_API_KEY"));
         assertEquals("yes", env.get("KEEP_ME"));
         assertEquals("ok", env.get("LLAMA_ARG_CUSTOM"));
         assertEquals("2", env.get("ADDED"));

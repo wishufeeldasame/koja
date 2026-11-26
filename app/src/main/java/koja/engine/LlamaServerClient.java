@@ -39,19 +39,25 @@ public final class LlamaServerClient implements LlmClient {
     public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofMinutes(15);
 
     private static final String CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
-    private static final Pattern LISTENING_PORT_PATTERN = Pattern.compile("http://127\\.0\\.0\\.1:(\\d+)");
-    // 로컬 격리(원격 터널·바인딩 주소)와 포트 로그 추출(INFO 로그)을 깨는 인자는 extraArgs에서 막는다.
-    private static final List<String> FORBIDDEN_EXTRA_ARGS = List.of(
-            "--connect",
-            "--connect-code",
-            "--host",
-            "--port",
-            "--log-disable",
-            "--log-file",
-            "--log-jsonl",
-            "-lv",
-            "--verbosity",
-            "--log-verbosity");
+    // GGUF 메타데이터 등에 루프백 URL이 찍힐 수 있으므로 실제 바인딩 문구("listening on")에서만 포트를 읽는다.
+    private static final Pattern LISTENING_PORT_PATTERN = Pattern.compile("listening on http://127\\.0\\.0\\.1:(\\d+)");
+    // 로컬 추론 튜닝 옵션만 허용해 원격 RPC·터널·프롬프트 파일 기록 등 비공개 유출 경로를 원천 차단한다(절대 규칙 3).
+    private static final List<String> ALLOWED_VALUE_ARGS = List.of(
+            "--n-cpu-moe",
+            "-t", "--threads",
+            "-tb", "--threads-batch",
+            "-b", "--batch-size",
+            "-ub", "--ubatch-size",
+            "--seed",
+            "-fa", "--flash-attn",
+            "-ctk", "--cache-type-k",
+            "-ctv", "--cache-type-v",
+            "-fitt", "--fit-target",
+            "-fitc", "--fit-ctx");
+    private static final List<String> ALLOWED_FLAG_ARGS = List.of(
+            "--mlock",
+            "--mmap",
+            "--no-mmap");
 
     /** {@code llama-server} 기동·호출 설정. */
     public record Config(
@@ -308,16 +314,35 @@ public final class LlamaServerClient implements LlmClient {
     }
 
     private static void validateExtraArgs(List<String> extraArgs) {
-        for (String arg : extraArgs) {
+        for (int i = 0; i < extraArgs.size(); i++) {
+            String arg = extraArgs.get(i);
             if (arg == null || arg.isBlank()) {
                 throw new IllegalArgumentException("extraArgs에 비어 있는 인자가 있습니다");
             }
             String trimmed = arg.trim();
-            for (String forbidden : FORBIDDEN_EXTRA_ARGS) {
-                if (trimmed.equals(forbidden) || trimmed.startsWith(forbidden + "=")) {
-                    throw new IllegalArgumentException("관리되는 llama-server에는 사용할 수 없는 인자입니다: " + trimmed);
-                }
+            if (ALLOWED_FLAG_ARGS.contains(trimmed)) {
+                continue;
             }
+            int eq = trimmed.indexOf('=');
+            if (eq > 0) {
+                String name = trimmed.substring(0, eq);
+                String val = trimmed.substring(eq + 1);
+                if (!ALLOWED_VALUE_ARGS.contains(name) || val.isBlank()) {
+                    throw new IllegalArgumentException("허용되지 않은 llama-server 추가 인자입니다: " + trimmed);
+                }
+                continue;
+            }
+            if (ALLOWED_VALUE_ARGS.contains(trimmed)) {
+                if (i + 1 >= extraArgs.size()) {
+                    throw new IllegalArgumentException("extraArgs 옵션 값이 빠졌습니다: " + trimmed);
+                }
+                String value = extraArgs.get(++i);
+                if (value == null || value.isBlank() || value.trim().startsWith("-")) {
+                    throw new IllegalArgumentException("extraArgs 옵션 값이 올바르지 않습니다: " + trimmed);
+                }
+                continue;
+            }
+            throw new IllegalArgumentException("허용되지 않은 llama-server 추가 인자입니다: " + trimmed);
         }
     }
 
@@ -383,7 +408,14 @@ public final class LlamaServerClient implements LlmClient {
 
             int status = res.statusCode();
             if (status == 200) {
-                return LlamaChatProtocol.parseSuccessResponse(res.body());
+                Response parsed = LlamaChatProtocol.parseSuccessResponse(res.body());
+                if (request.jsonSchema() != null && "length".equals(parsed.finishReason())) {
+                    throw new OutputTruncatedException(
+                            "JSON 스키마 응답이 max_tokens(" + request.maxTokens() + ") 제한에 도달해 잘렸습니다",
+                            parsed.content(),
+                            parsed.usage());
+                }
+                return parsed;
             }
             IOException classified = LlamaChatProtocol.classifyHttpError(status, res.body(), hasOutOfMemoryInServerLogs());
             if (classified instanceof ContextLengthExceededException

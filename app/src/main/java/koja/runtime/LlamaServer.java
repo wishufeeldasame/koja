@@ -15,9 +15,9 @@ public final class LlamaServer {
     public static final String EXECUTABLE_BASE = "llama-server";
     public static final String ENV_EXECUTABLE = "KOJA_LLAMA_SERVER";
 
-    // 부모 셸의 LLAMA_ARG_CONNECT(원격 터널)·LLAMA_ARG_LOG_VERBOSITY(시작 로그 억제) 등이
+    // 부모 셸의 LLAMA_ARG_CONNECT(원격 터널)·LLAMA_ARG_LOG_VERBOSITY(시작 로그 억제)·LLAMA_API_KEY(인증 강제)가
     // 관리되는 로컬 서버에 상속되지 않도록 제거한다(D-051, D-066).
-    private static final List<String> CLEARED_ENV_PREFIXES = List.of("LLAMA_ARG_", "LLAMA_LOG_");
+    private static final List<String> CLEARED_ENV_PREFIXES = List.of("LLAMA_ARG_", "LLAMA_LOG_", "LLAMA_API_KEY");
 
     private LlamaServer() {}
 

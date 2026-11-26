@@ -134,6 +134,26 @@ public interface LlmClient extends Engine {
         }
     }
 
+    /** JSON 스키마 요청 응답이 {@code maxTokens} 한계({@code finish_reason: "length"})로 잘렸을 때 발생한다. */
+    class OutputTruncatedException extends IOException {
+        private final String partialContent;
+        private final Usage usage;
+
+        public OutputTruncatedException(String message, String partialContent, Usage usage) {
+            super(message);
+            this.partialContent = partialContent == null ? "" : partialContent;
+            this.usage = usage == null ? Usage.EMPTY : usage;
+        }
+
+        public String partialContent() {
+            return partialContent;
+        }
+
+        public Usage usage() {
+            return usage;
+        }
+    }
+
     Response complete(Request request) throws IOException, InterruptedException;
 
     default String complete(String systemPrompt, String userPrompt) throws IOException, InterruptedException {

@@ -289,12 +289,17 @@ if [ -f "$OUT/$exe" ] \
   && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null)" = "$notice" ]; then
   echo "이미 있음: $OUT/$exe"
 else
-  # Koja의 llama 번들 마커가 있는 폴더이거나 빈 폴더일 때만 덮어쓴다(다른 프로그램의 NOTICE.txt 폴더 보호).
-  if [ -d "$OUT" ] \
-    && [ "$(cat "$OUT/$BUNDLE_MARKER" 2> /dev/null)" != "$BUNDLE_MARKER_CONTENT" ] \
-    && [ -n "$(ls -A "$OUT")" ]; then
-    echo "이 스크립트가 만든 폴더가 아니라서 덮어쓰지 않는다: $OUT" >&2
-    exit 1
+  # Koja의 llama 번들 마커가 있는 디렉터리이거나 빈 디렉터리일 때만 덮어쓴다(일반 파일·심볼릭 링크·다른 프로그램 폴더 보호).
+  if [ -e "$OUT" ] || [ -L "$OUT" ]; then
+    if [ ! -d "$OUT" ] || [ -L "$OUT" ]; then
+      echo "출력 경로가 디렉터리가 아니라서 덮어쓰지 않는다: $OUT" >&2
+      exit 1
+    fi
+    if [ "$(cat "$OUT/$BUNDLE_MARKER" 2> /dev/null)" != "$BUNDLE_MARKER_CONTENT" ] \
+      && [ -n "$(ls -A "$OUT")" ]; then
+      echo "이 스크립트가 만든 폴더가 아니라서 덮어쓰지 않는다: $OUT" >&2
+      exit 1
+    fi
   fi
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT

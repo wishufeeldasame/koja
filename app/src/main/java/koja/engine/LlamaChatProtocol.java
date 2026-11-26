@@ -20,16 +20,18 @@ import tools.jackson.databind.node.ObjectNode;
  * 응답 파싱, 컨텍스트 초과·OOM·일시 오류 분류를 맡는다.
  */
 final class LlamaChatProtocol {
+    // 백엔드 초기화 실패("failed to allocate context" 등)를 OOM으로 오인하지 않도록 메모리 부족 전용 문구만 매칭한다.
     private static final List<String> OOM_TOKENS = List.of(
             "out of memory",
             "cudaerrormemoryallocation",
-            "failed to allocate",
+            "cuda_error_out_of_memory",
             "insufficient memory",
             "not enough memory",
-            "cannot allocate",
-            "unable to allocate",
+            "cannot allocate memory",
+            "unable to allocate memory",
             "kiogpucommandbuffercallbackerroroutofmemory",
-            "ggml_backend_cuda_buffer_type_alloc_buffer");
+            "vk_error_out_of_device_memory",
+            "vk_error_out_of_host_memory");
     private static final List<String> CONTEXT_OVERFLOW_TOKENS = List.of(
             "exceed_context_size_error",
             "exceeds the available context size",

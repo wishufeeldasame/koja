@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import koja.engine.LlmClient.ContextLengthExceededException;
 import koja.engine.LlmClient.Message;
 import koja.engine.LlmClient.OutOfMemoryException;
+import koja.engine.LlmClient.OutputTruncatedException;
 import koja.engine.LlmClient.Request;
 import koja.engine.LlmClient.Response;
 import koja.engine.LlmClient.Role;
@@ -135,31 +136,90 @@ class LlamaServerClientTest {
     }
 
     @Test
-    void rejectsForbiddenTunnelAndLogExtraArgs(@TempDir Path dir) {
+    void allowsOnlyLocalTuningExtraArgsAndRejectsRemoteOrLogFlags(@TempDir Path dir) {
         Path model = dir.resolve("dummy.gguf");
-        for (String arg : List.of(
-                "--connect", "--connect=1", "--connect-code", "--connect-code=abc",
-                "--host", "--host=0.0.0.0", "--port", "--port=8080",
-                "--log-disable", "--log-file", "--log-jsonl",
-                "-lv", "-lv=2", "--verbosity", "--log-verbosity", "--log-verbosity=1")) {
+        LlamaServerClient.Config allowed = LlamaServerClient.builder(model)
+                .executable("llama-server")
+                .extraArgs(List.of("--n-cpu-moe", "20", "--threads=4", "--seed", "42", "--mlock"))
+                .build();
+        assertEquals(6, allowed.extraArgs().size());
+
+        for (List<String> bad : List.of(
+                List.of("--connect"),
+                List.of("--connect=1"),
+                List.of("--connect-code", "abc"),
+                List.of("--rpc", "10.0.0.2:50052"),
+                List.of("--rpc=10.0.0.2:50052"),
+                List.of("--slot-save-path", "/tmp"),
+                List.of("--host", "0.0.0.0"),
+                List.of("--port", "8080"),
+                List.of("--log-disable"),
+                List.of("--log-file", "/tmp/log"),
+                List.of("--log-jsonl"),
+                List.of("-lv", "2"),
+                List.of("--log-verbosity=1"),
+                List.of("--seed"),
+                List.of("--seed", "--mlock"))) {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> LlamaServerClient.builder(model)
                             .executable("llama-server")
-                            .extraArgs(List.of(arg))
+                            .extraArgs(bad)
                             .build(),
-                    "금지 인자가 거부되어야 합니다: " + arg);
+                    "허용되지 않은 추가 인자가 거부되어야 합니다: " + bad);
         }
     }
 
     @Test
-    void extractsListeningPortFromLlamaServerLog() {
+    void extractsListeningPortOnlyFromListeningLine() {
         assertEquals(
                 OptionalInt.of(62285),
                 LlamaServerClient.extractListeningPort(
                         "0.01.742.071 I srv  server_on_li: listening on http://127.0.0.1:62285"));
+        assertEquals(
+                OptionalInt.empty(),
+                LlamaServerClient.extractListeningPort("metadata: homepage = http://127.0.0.1:9999"));
         assertEquals(OptionalInt.empty(), LlamaServerClient.extractListeningPort("loading model..."));
-        assertEquals(OptionalInt.empty(), LlamaServerClient.extractListeningPort("http://127.0.0.1:99999"));
+        assertEquals(
+                OptionalInt.empty(),
+                LlamaServerClient.extractListeningPort("listening on http://127.0.0.1:99999"));
+    }
+
+    @Test
+    void doesNotMisclassifyMetalInitFailureAsOom() {
+        assertFalse(LlamaChatProtocol.isOutOfMemoryText(
+                "0.02.067.689 E ggml_metal_init: error: failed to create command queue\n"
+                        + "0.02.067.692 E ggml_backend_metal_device_init_backend: error: failed to allocate context"));
+        assertTrue(LlamaChatProtocol.isOutOfMemoryText("CUDA error: out of memory"));
+        assertTrue(LlamaChatProtocol.isOutOfMemoryText("kIOGPUCommandBufferCallbackErrorOutOfMemory"));
+    }
+
+    @Test
+    void throwsOutputTruncatedWhenSchemaResponseHitsLengthLimit() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        HttpServer fake = startFakeHttp(ex -> {
+            calls.incrementAndGet();
+            sendJson(ex, 200, """
+                    {"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"{\\"ok\\":"}}],
+                     "usage":{"prompt_tokens":80,"completion_tokens":64}}
+                    """);
+        });
+        try (HttpClient http = LocalServer.newLoopbackHttpClient(Duration.ofSeconds(2));
+                LlamaServerClient client = LlamaServerClient.connectForTest(
+                        "gemma-4-e4b", uriOf(fake), http, Duration.ofSeconds(5), 2, Duration.ofMillis(5))) {
+            OutputTruncatedException ex = assertThrows(
+                    OutputTruncatedException.class,
+                    () -> client.complete(Request.withSchema("sys", "usr", SAMPLE_SCHEMA, 64)));
+            assertEquals("{\"ok\":", ex.partialContent());
+            assertEquals(new Usage(80, 64), ex.usage());
+            assertEquals(1, calls.get());
+
+            // 스키마 없는 일반 호출은 finishReason="length"를 그대로 반환한다.
+            Response plain = client.complete(Request.of("sys", "usr"));
+            assertEquals("length", plain.finishReason());
+        } finally {
+            fake.stop(0);
+        }
     }
 
     @Test
@@ -366,17 +426,9 @@ class LlamaServerClientTest {
     }
 
     private static LlamaServerClient startManagedFakeClient(Path model, String mode, Path argsDump) throws IOException {
-        List<String> extra = new ArrayList<>();
-        extra.add("--fake-mode");
-        extra.add(mode);
-        if (argsDump != null) {
-            extra.add("--dump-args");
-            extra.add(argsDump.toString());
-        }
         LlamaServerClient.Config config = LlamaServerClient.builder(model)
                 .executable("llama-server")
                 .modelName(LlamaModel.GEMMA_4_E4B.id())
-                .extraArgs(extra)
                 .startupTimeout(Duration.ofSeconds(15))
                 .requestTimeout(Duration.ofSeconds(5))
                 .maxRetries(1)
@@ -388,6 +440,12 @@ class LlamaServerClientTest {
             List<String> llamaArgs = LlamaServerClient.buildCommand(config, normalized, port);
             // 첫 요소("llama-server")를 제외한 실제 CLI 인자를 FakeLlamaServer에 그대로 넘긴다.
             cmd.addAll(llamaArgs.subList(1, llamaArgs.size()));
+            cmd.add("--fake-mode");
+            cmd.add(mode);
+            if (argsDump != null) {
+                cmd.add("--dump-args");
+                cmd.add(argsDump.toString());
+            }
             return cmd;
         });
     }
