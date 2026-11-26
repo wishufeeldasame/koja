@@ -336,7 +336,9 @@ class LlamaServerClientTest {
 
     @Test
     void startsManagedFakeServerRunsCompletionAndClosesCleanly(@TempDir Path dir) throws Exception {
-        Path model = dir.resolve("한글 모델").resolve("gemma-4-E4B-it-Q4_K_M.gguf");
+        // 영문 로캘 윈도우 CI의 java.exe 런처는 argv를 ANSI 코드페이지로 변환하므로 가짜 프로세스 인자에는 공백 경로만 쓴다.
+        // 한글·공백 경로의 명령 조립과 작업 폴더 계산은 buildCommand·LlamaServerTest에서 검증한다.
+        Path model = dir.resolve("model dir").resolve("gemma-4-E4B-it-Q4_K_M.gguf");
         Files.createDirectories(model.getParent());
         Files.writeString(model, "dummy-gguf", StandardCharsets.UTF_8);
         Path argsDump = dir.resolve("args.txt");
