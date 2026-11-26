@@ -57,7 +57,7 @@ docs/           공개 문서 (설계, 결정 기록)
   private/      비공개 문서 (커밋 금지)
 .agents/agents/ 프로젝트 에이전트 원본
 .claude/ .codex/ .opencode/   도구별 에이전트 파일 (생성물)
-scripts/        저장소 관리 스크립트 (sync_agents.py, bundle_ffmpeg.sh)
+scripts/        저장소 관리 스크립트 (sync_agents.py, bundle_ffmpeg.sh, bundle_llama.sh)
 .github/        PR 양식, CI (pr-checks.yml, build.yml)
 settings.gradle.kts, gradlew, gradle/   Gradle 빌드 (Kotlin DSL)
 app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
@@ -66,9 +66,9 @@ app/            JavaFX 앱 (모듈 `koja`, 패키지 `koja.*`)
   src/main/java/koja/ui    화면 (진입점 KojaApp)
 poc/            M0 비교 실험 스크립트 (Python + uv, 앱과 분리). 사용법 poc/README.md, 윈도우 측정 poc/WINDOWS.md
   src/main/java/koja/core  Project 모델, project.json 저장/로드 (ProjectStore), stt.json·diar.json (StageStore)
-  src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 순차 파이프라인 (Pipeline)
+  src/main/java/koja/engine  단계 엔진 인터페이스(Transcriber / Diarizer / LlmClient / FrameReader), 로컬 LLM 클라이언트(LlamaServerClient, LlamaModel), 순차 파이프라인 (Pipeline)
   src/main/java/koja/media    ffmpeg 호출 (가져오기: audio.wav, proxy.mp4)
-  src/main/java/koja/runtime  ffmpeg 위치·인코더(Ffmpeg), 데이터·모델 경로(AppPaths), 모델 다운로드(ModelStore), 로컬 HTTP 서버(LocalServer), OS 비밀값 보관(SecretStore)
+  src/main/java/koja/runtime  ffmpeg 위치·인코더(Ffmpeg), llama-server 위치(LlamaServer), 데이터·모델 경로(AppPaths), 모델 다운로드(ModelStore), 로컬 HTTP 서버(LocalServer), OS 비밀값 보관(SecretStore)
   src/main/java/koja/export   구글 OAuth 로그인(루프백 + PKCE), drive.file PoC(DriveFolderPoc)
   src/test/java/           JUnit 테스트
 ```
@@ -112,6 +112,7 @@ python3 scripts/sync_agents.py --check   # 에이전트 생성 파일이 원본�
 ./gradlew test       # 테스트 (ffmpeg가 PATH에 없으면 가져오기 테스트는 건너뜀)
 ./gradlew build      # 컴파일 + 테스트 (CI build.yml이 맥·윈도우에서 돌림)
 scripts/bundle_ffmpeg.sh   # 설치파일에 넣을 LGPL ffmpeg를 app/build/ffmpeg에 (맥: 소스 빌드 약 1분, 윈도우: Git Bash에서 다운로드)
+scripts/bundle_llama.sh    # llama.cpp b12655 llama-server를 app/build/llama에 (맥 arm64 Metal / 윈도우 x64 CUDA, jpackage·CI 연결은 W2-2b 병합 후 후속 PR)
 ./gradlew oauthPoc --args="<폴더 ID>"   # 실제 구글 로그인 후 drive.file로 시트를 만들 수 있는 위치 확인(KOJA_GOOGLE_CLIENT_ID·KOJA_GOOGLE_CLIENT_SECRET 필요, CI에서 안 돌림)
 ./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3. app/build/ffmpeg가 없으면 실패
 ```

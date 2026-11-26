@@ -202,18 +202,41 @@ public final class LocalServer implements Closeable {
             IntFunction<List<String>> command,
             Path workingDirectory,
             Map<String, String> environment,
+            List<String> unsetEnvironmentPrefixes,
             HealthCheck healthCheck,
             Function<String, OptionalInt> portExtractor,
             Duration startupTimeout,
             Duration pollInterval,
             Duration shutdownGracePeriod,
             int maxLogLines) {
+        public Config(
+                String name,
+                IntFunction<List<String>> command,
+                Path workingDirectory,
+                Map<String, String> environment,
+                HealthCheck healthCheck,
+                Function<String, OptionalInt> portExtractor,
+                Duration startupTimeout,
+                Duration pollInterval,
+                Duration shutdownGracePeriod,
+                int maxLogLines) {
+            this(name, command, workingDirectory, environment, List.of(), healthCheck, portExtractor,
+                    startupTimeout, pollInterval, shutdownGracePeriod, maxLogLines);
+        }
+
         public Config {
             if (name == null || name.isBlank()) {
                 throw new IllegalArgumentException("서버 이름이 비어 있습니다");
             }
             Objects.requireNonNull(command, "command");
             environment = environment == null ? Map.of() : Map.copyOf(environment);
+            unsetEnvironmentPrefixes = unsetEnvironmentPrefixes == null
+                    ? List.of() : List.copyOf(unsetEnvironmentPrefixes);
+            for (String prefix : unsetEnvironmentPrefixes) {
+                if (prefix == null || prefix.isBlank()) {
+                    throw new IllegalArgumentException("제거할 환경 변수 접두사가 비어 있습니다");
+                }
+            }
             Objects.requireNonNull(healthCheck, "healthCheck");
             Objects.requireNonNull(startupTimeout, "startupTimeout");
             Objects.requireNonNull(pollInterval, "pollInterval");
@@ -238,6 +261,7 @@ public final class LocalServer implements Closeable {
         private final IntFunction<List<String>> command;
         private Path workingDirectory;
         private Map<String, String> environment = Map.of();
+        private List<String> unsetEnvironmentPrefixes = List.of();
         private HealthCheck healthCheck = HealthCheck.httpOk("/");
         private Function<String, OptionalInt> portExtractor;
         private Duration startupTimeout = DEFAULT_STARTUP_TIMEOUT;
@@ -257,6 +281,12 @@ public final class LocalServer implements Closeable {
 
         public Builder environment(Map<String, String> environment) {
             this.environment = environment == null ? Map.of() : Map.copyOf(environment);
+            return this;
+        }
+
+        /** 자식 프로세스로 상속하지 않을 부모 환경 변수 접두사(대소문자 무시)를 지정한다. */
+        public Builder unsetEnvironmentPrefixes(List<String> prefixes) {
+            this.unsetEnvironmentPrefixes = prefixes == null ? List.of() : List.copyOf(prefixes);
             return this;
         }
 
@@ -295,8 +325,8 @@ public final class LocalServer implements Closeable {
         }
 
         public Config build() {
-            return new Config(name, command, workingDirectory, environment, healthCheck, portExtractor,
-                    startupTimeout, pollInterval, shutdownGracePeriod, maxLogLines);
+            return new Config(name, command, workingDirectory, environment, unsetEnvironmentPrefixes,
+                    healthCheck, portExtractor, startupTimeout, pollInterval, shutdownGracePeriod, maxLogLines);
         }
 
         public LocalServer start() throws IOException {
@@ -397,9 +427,7 @@ public final class LocalServer implements Closeable {
         if (config.workingDirectory() != null) {
             pb.directory(config.workingDirectory().toFile());
         }
-        if (!config.environment().isEmpty()) {
-            pb.environment().putAll(config.environment());
-        }
+        applyEnvironment(pb.environment(), config.unsetEnvironmentPrefixes(), config.environment());
 
         Process process;
         try {
@@ -925,6 +953,29 @@ public final class LocalServer implements Closeable {
             return "";
         }
         return "\n" + String.join("\n", tail);
+    }
+
+    static void applyEnvironment(
+            Map<String, String> target, List<String> unsetPrefixes, Map<String, String> overrides) {
+        if (unsetPrefixes != null && !unsetPrefixes.isEmpty()) {
+            target.keySet().removeIf(key -> matchesAnyPrefix(key, unsetPrefixes));
+        }
+        if (overrides != null && !overrides.isEmpty()) {
+            target.putAll(overrides);
+        }
+    }
+
+    private static boolean matchesAnyPrefix(String key, List<String> prefixes) {
+        if (key == null) {
+            return false;
+        }
+        String upper = key.toUpperCase(Locale.ROOT);
+        for (String prefix : prefixes) {
+            if (upper.startsWith(prefix.toUpperCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void validateCommand(String name, List<String> cmd) throws IOException {
