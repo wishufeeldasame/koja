@@ -35,21 +35,29 @@ public final class WhisperServer {
         String exe = bundled.map(Path::toString).orElse(fallback(System.getenv("KOJA_WHISPER_SERVER")));
         String threads = Integer.toString(Math.min(8, Runtime.getRuntime().availableProcessors()));
         // -nlp: verbose_json마다 언어 확률을 따로 한 번 더 계산하지 않게 한다. 언어는 language 필드로 충분하다.
-        return LocalServer.builder("whisper-server", port -> List.of(exe, "-m", model.toString(),
+        // 윈도우 whisper-server는 인자를 ANSI 코드 페이지로 받아 UTF-8로 해석해서 한글 경로가 깨진다(whisper.cpp #4018).
+        // 모델 폴더를 작업 폴더로 두고 ASCII 파일 이름만 넘긴다.
+        return LocalServer.builder("whisper-server", port -> List.of(exe, "-m", model.getFileName().toString(),
                         "--host", "127.0.0.1", "--port", Integer.toString(port), "-t", threads, "-nlp"))
-                .environment(bundled.map(p -> environment(p, System.getProperty("os.name"), System.getenv("PATH")))
+                .workingDirectory(model.toAbsolutePath().getParent())
+                .environment(bundled.map(p -> environment(p, System.getProperty("os.name"), System.getenv()))
                         .orElse(Map.of()))
                 .healthCheck(LocalServer.HealthCheck.httpOk("/health"))
                 .startupTimeout(Duration.ofMinutes(3))
                 .start();
     }
 
-    /** 윈도우 설치판은 CUDA 런타임 DLL이 whisper/ 옆 cuda/에 있어서 PATH 앞에 붙인다(D-060). */
-    static Map<String, String> environment(Path exe, String osName, String path) {
+    /**
+     * 윈도우 설치판은 CUDA 런타임 DLL이 whisper/ 옆 cuda/에 있어서 PATH 앞에 붙인다(D-060).
+     * 윈도우 변수 이름은 보통 {@code Path}다. 자식 환경 맵은 대소문자를 가려서 같은 이름으로 덮어써야 두 개가 되지 않는다.
+     */
+    static Map<String, String> environment(Path exe, String osName, Map<String, String> env) {
         Path cuda = exe.toAbsolutePath().getParent().resolveSibling(CUDA_DIR);
         if (!AppPaths.isWindows(osName) || !Files.isDirectory(cuda)) {
             return Map.of();
         }
-        return Map.of("PATH", path == null || path.isBlank() ? cuda.toString() : cuda + File.pathSeparator + path);
+        String key = env.keySet().stream().filter(k -> k.equalsIgnoreCase("PATH")).findFirst().orElse("PATH");
+        String path = env.get(key);
+        return Map.of(key, path == null || path.isBlank() ? cuda.toString() : cuda + File.pathSeparator + path);
     }
 }

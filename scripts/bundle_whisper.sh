@@ -47,9 +47,10 @@ download() { # url sha256 dest
   fi
 }
 
-# 이 스크립트가 만든 폴더(NOTICE.txt 있음)이거나 빈 폴더일 때만 덮어쓴다.
-check_ours() {
-  if [ -d "$1" ] && [ ! -f "$1/NOTICE.txt" ] && [ -n "$(ls -A "$1")" ]; then
+# 이 스크립트가 만든 폴더(NOTICE.txt 첫 줄이 $2로 시작, 버전이 바뀌어도 같음)이거나 빈 폴더일 때만 덮어쓴다. ffmpeg 등 다른 번들 폴더를 지우지 않게 한다.
+check_ours() { # dir prefix
+  [ -d "$1" ] && [ -n "$(ls -A "$1")" ] || return 0
+  if [[ "$(head -1 "$1/NOTICE.txt" 2> /dev/null)" != "$2"* ]]; then
     echo "이 스크립트가 만든 폴더가 아니라서 덮어쓰지 않는다: $1" >&2
     exit 1
   fi
@@ -87,8 +88,8 @@ fi
 if $ready; then
   echo "이미 있음: $OUT/$exe"
 else
-  check_ours "$OUT"
-  [ "$os" = win ] && check_ours "$CUDA_OUT"
+  check_ours "$OUT" "whisper.cpp "
+  [ "$os" = win ] && check_ours "$CUDA_OUT" "NVIDIA CUDA "
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT
   stage="$work/out"

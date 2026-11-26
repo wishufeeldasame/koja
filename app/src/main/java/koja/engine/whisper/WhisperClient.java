@@ -11,6 +11,8 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** whisper-server {@code POST /inference} multipart 호출. */
 final class WhisperClient implements WhisperTranscriber.Inference {
@@ -41,15 +43,18 @@ final class WhisperClient implements WhisperTranscriber.Inference {
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
                 .build();
-        // send()는 interrupt로 멈추지 않을 수 있어서 sendAsync를 기다리다 interrupt면 취소한다.
+        // send()는 interrupt로 멈추지 않을 수 있고, request timeout은 헤더까지만 본다. 본문까지 TIMEOUT 안에 기다리고 넘거나 interrupt면 취소한다.
         CompletableFuture<HttpResponse<String>> future =
                 http.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         HttpResponse<String> res;
         try {
-            res = future.get();
+            res = future.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             future.cancel(true);
             throw e;
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            throw new IOException("whisper-server 응답 시간 초과(" + TIMEOUT.toMinutes() + "분)", e);
         } catch (ExecutionException e) {
             throw e.getCause() instanceof IOException io ? io : new IOException("whisper-server 요청 실패", e.getCause());
         }
