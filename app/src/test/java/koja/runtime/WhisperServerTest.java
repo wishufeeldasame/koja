@@ -37,5 +37,8 @@ class WhisperServerTest {
         assertEquals("/env/whisper-server", WhisperServer.fallback("/env/whisper-server"));
         assertEquals("whisper-server", WhisperServer.fallback(" "));
         assertEquals("whisper-server", WhisperServer.fallback(null));
+        assertEquals("my-whisper", WhisperServer.fallback("my-whisper"));
+        assertEquals(Path.of("build", "whisper-server").toAbsolutePath().toString(),
+                WhisperServer.fallback(Path.of("build", "whisper-server").toString()));
     }
 }

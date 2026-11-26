@@ -31,6 +31,10 @@ final class WhisperJson {
         if (root.has("error")) {
             throw new IOException("whisper-server 오류: " + root.path("error").asString(""));
         }
+        // text가 없으면 무음(빈 문자열)과 구별할 수 없어 구간이 조용히 사라진다. 형식이 다른 응답은 실패로 본다.
+        if (!root.path("text").isString()) {
+            throw new IOException("whisper-server 응답에 text가 없습니다");
+        }
         List<Word> words = new ArrayList<>();
         for (JsonNode seg : root.path("segments")) {
             for (JsonNode w : seg.path("words")) {
@@ -45,7 +49,7 @@ final class WhisperJson {
             }
         }
         String lang = root.path("language").asString("").toLowerCase(Locale.ROOT);
-        return new Result(root.path("text").asString("").strip(), CODES.getOrDefault(lang, lang), words);
+        return new Result(root.path("text").asString().strip(), CODES.getOrDefault(lang, lang), words);
     }
 
     private static long clamp(long v, long lo, long hi) {

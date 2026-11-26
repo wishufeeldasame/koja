@@ -129,6 +129,7 @@ class WhisperTranscriberTest {
         IOException e = assertThrows(IOException.class, () -> WhisperJson.parse("{\"error\":\"failed to read audio\"}", 0, 1));
         assertTrue(e.getMessage().contains("failed to read audio"));
         assertThrows(IOException.class, () -> WhisperJson.parse("<html>", 0, 1));
+        assertThrows(IOException.class, () -> WhisperJson.parse("{}", 0, 1));
     }
 
     @Test

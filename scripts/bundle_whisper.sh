@@ -23,6 +23,9 @@ WIN_FILES=(whisper-server.exe whisper.dll ggml.dll ggml-base.dll ggml-cuda.dll
   ggml-cpu-x64.dll ggml-cpu-sse42.dll ggml-cpu-sandybridge.dll ggml-cpu-haswell.dll ggml-cpu-skylakex.dll
   ggml-cpu-cannonlake.dll ggml-cpu-cascadelake.dll ggml-cpu-icelake.dll ggml-cpu-alderlake.dll)
 CUDA_FILES=(cudart64_12.dll cublas64_12.dll cublasLt64_12.dll)
+# NVIDIA 재배포 목록(redistrib_12.4.x.json)의 cuda_cudart·libcublas license_path가 가리키는 같은 EULA 전문. 버전 없는 주소라 바뀌면 해시가 달라져 멈춘다.
+CUDA_LICENSE_URL=https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/LICENSE.txt
+CUDA_LICENSE_SHA256=e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07
 
 # ffmpeg 번들과 같은 최소 macOS(D-042).
 MACOS_MIN=13.0
@@ -49,7 +52,9 @@ download() { # url sha256 dest
 
 # 이 스크립트가 만든 폴더(NOTICE.txt 첫 줄이 $2로 시작, 버전이 바뀌어도 같음)이거나 빈 폴더일 때만 덮어쓴다. ffmpeg 등 다른 번들 폴더를 지우지 않게 한다.
 check_ours() { # dir prefix
-  [ -d "$1" ] && [ -n "$(ls -A "$1")" ] || return 0
+  [ -e "$1" ] || return 0
+  [ -d "$1" ] || { echo "폴더가 아니라서 덮어쓰지 않는다: $1" >&2; exit 1; }
+  [ -n "$(ls -A "$1")" ] || return 0
   if [[ "$(head -1 "$1/NOTICE.txt" 2> /dev/null)" != "$2"* ]]; then
     echo "이 스크립트가 만든 폴더가 아니라서 덮어쓰지 않는다: $1" >&2
     exit 1
@@ -73,6 +78,7 @@ CUDA 런타임 DLL은 ../cuda/ (NVIDIA CUDA 12.4, cuda/NOTICE.txt)
 whisper.cpp $WHISPER_TAG 윈도우 CUDA 12.4 빌드에 들어 있는 것을 그대로 넣었다: $WIN_URL
 SHA-256: $WIN_SHA256
 NVIDIA CUDA Toolkit EULA 부록 A(재배포 가능 파일)에 따라 배포한다: https://docs.nvidia.com/cuda/eula/
+라이선스 전문: LICENSE.txt ($CUDA_LICENSE_URL, SHA-256 $CUDA_LICENSE_SHA256)
 whisper-server와 llama-server가 함께 쓴다(koja D-060)."
 fi
 
@@ -112,6 +118,7 @@ else
     unzip -q -j "$work/whisper.zip" "${WIN_FILES[@]/#/Release/}" -d "$stage"
     mkdir -p "$cuda_stage"
     unzip -q -j "$work/whisper.zip" "${CUDA_FILES[@]/#/Release/}" -d "$cuda_stage"
+    download "$CUDA_LICENSE_URL" "$CUDA_LICENSE_SHA256" "$cuda_stage/LICENSE.txt"
     printf '%s\n' "$cuda_notice" > "$cuda_stage/NOTICE.txt"
   fi
   printf '%s\n' "$notice" > "$stage/NOTICE.txt"
@@ -130,7 +137,7 @@ if [ "$os" = mac ]; then
   [ "$minos" = "$MACOS_MIN" ] || { echo "최소 macOS가 $MACOS_MIN이 아니다: $minos" >&2; exit 1; }
 else
   for f in "${WIN_FILES[@]}"; do [ -f "$stage/$f" ] || { echo "파일 없음: $f" >&2; exit 1; }; done
-  for f in "${CUDA_FILES[@]}"; do [ -f "$cuda_stage/$f" ] || { echo "파일 없음: cuda/$f" >&2; exit 1; }; done
+  for f in "${CUDA_FILES[@]}" LICENSE.txt; do [ -f "$cuda_stage/$f" ] || { echo "파일 없음: cuda/$f" >&2; exit 1; }; done
 fi
 # --help는 모델·GPU 없이 사용법만 찍고 끝난다. 실행 파일과 바로 링크된 DLL이 읽히는지만 본다.
 help=$("$bin" --help 2>&1) || true

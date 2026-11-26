@@ -22,8 +22,13 @@ public final class WhisperServer {
 
     private WhisperServer() {}
 
+    /** 경로가 든 값은 작업 폴더(모델 폴더)로 옮기기 전에 지금 폴더 기준 절대 경로로 바꾼다. 이름만이면 PATH에서 찾는다. */
     static String fallback(String env) {
-        return env != null && !env.isBlank() ? env : "whisper-server";
+        if (env == null || env.isBlank()) {
+            return "whisper-server";
+        }
+        Path p = Path.of(env);
+        return p.getParent() == null ? env : p.toAbsolutePath().toString();
     }
 
     /**
