@@ -6,6 +6,8 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 ## Unreleased
 
 ### 추가
+- M2 파이프라인 통합: 가져오기 뒤 Silero VAD → 2회 방식 STT(`stt.json`) → 화자 구분(`diar.json`) → 화자 붙이기 → 구간 1개 = 행 1개(`koja.core.SegmentRows`, D-071) → `project.json` 저장 → 검수 화면. 엔진 조립 `koja.engine.LocalEngines`, 행 단계 `stages.rows`(STT·화자 구분을 새로 돌렸을 때만 다시 만듦)
+- 처리 창(`koja.ui.PipelineDialog`): 빠진 로컬 모델 용량 안내 후 다운로드 진행률·취소, 단계(STT / 화자 구분) 진행률·취소, 취소·실패 안내. 처리 메뉴 → 전사·화자 구분 실행(Ctrl/Cmd+R)으로 이어 하기(D-072)
 - AGENTS.md에 에이전트 역할 분담과 병렬 작업 규칙(워커 최대 4개) 추가, 코드 리뷰 기본 리뷰어를 Codex로 명시, OpenCode를 선택 도구로 변경
 - 코드 변경이 없는 PR(문서·양식·CI 설정)은 리뷰와 `./gradlew test`를 생략할 수 있게 규칙과 PR 양식을 변경
 - PR 양식에 로컬 검사 절을 추가하고 리뷰 절을 PR 후 리뷰 흐름(리뷰한 도구, 리뷰 코멘트 링크)에 맞게 변경

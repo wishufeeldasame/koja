@@ -5,6 +5,8 @@ import java.nio.file.Path;
 
 /** 프로젝트 폴더(project.json이 있는 폴더) 안의 파일 위치. */
 public final class ProjectFiles {
+    /** 가져오기가 만드는 프로젝트 파일. 단계 파일(stt.json …)은 폴더에 하나뿐이라 이 파일만 처리한다. */
+    public static final String PROJECT = "project.json";
     public static final String PROXY = "proxy.mp4";
     /** STT 입력(16kHz 모노). */
     public static final String AUDIO = "audio.wav";

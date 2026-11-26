@@ -50,7 +50,7 @@ class PipelineTest {
     class FakeDiar implements Diarizer {
         FakeDiar() { log.add("open diar"); }
         public String name() { return "fake-diar"; }
-        public DiarResult diarize(Path audio, DoubleConsumer progress) { return DIAR; }
+        public DiarResult diarize(Path audio, DoubleConsumer progress) throws IOException { return DIAR; }
         public void close() { log.add("close diar"); }
     }
 
@@ -69,7 +69,7 @@ class PipelineTest {
         Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (stage, f) -> progress.add(stage + " " + f));
 
         assertEquals(List.of("open stt", "close stt", "open diar", "close diar"), log);
-        assertEquals(List.of("stt 1.0"), progress);
+        assertEquals(List.of("stt -1.0", "stt 1.0", "diar -1.0"), progress);
         assertEquals(List.of("S1", "S2"), p.sttSegments().stream().limit(2).map(SttSegment::speakerId).toList());
         assertEquals(null, p.sttSegments().get(2).speakerId());
         assertEquals(List.of(new Speaker("S1", "화자 미확인 1", false), new Speaker("S2", "화자 미확인 2", false)),
@@ -196,7 +196,8 @@ class PipelineTest {
                         throw new AssertionError(e);
                     }
                 }));
-        assertEquals(List.of("open stt", "close stt"), log);
+        // 첫 진행률 알림이 엔진을 열기 전이라 아무 엔진도 열리지 않는다.
+        assertEquals(List.of(), log);
     }
 
     /** 화자 구분 done은 화자표 초기화와 같이 저장된다. 그 전에 멈추면 다음 실행이 화자 구분부터 다시 한다. */
@@ -217,6 +218,166 @@ class PipelineTest {
         assertTrue(saved.stages().get(Pipeline.STT).done());
         assertFalse(saved.stages().containsKey(Pipeline.DIAR));
         assertEquals(List.of(new Speaker("S1", "선수A", true)), saved.speakers());
+    }
+
+    @Test
+    void buildsOneRowPerSegmentAndMarksUnknownSpeakers() throws Exception {
+        Path file = newProject(List.of());
+
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of(List.of(1), List.of(2), List.of(3)), p.rows().stream().map(Project.Row::segIds).toList());
+        assertEquals(List.of(0L, 1_000L, 9_000L), p.rows().stream().map(Project.Row::startMs).toList());
+        assertEquals(List.of("가", "나", "다"), p.rows().stream().map(Project.Row::ko).toList());
+        assertEquals(java.util.Arrays.asList("S1", "S2", null), p.rows().stream().map(Project.Row::speakerId).toList());
+        // 화자 구분 직후 화자는 모두 미확인이다.
+        assertTrue(p.rows().stream().allMatch(r -> r.flags().equals(List.of(Project.Flag.SPEAKER_UNSURE))));
+        assertEquals(List.of(), p.ignoredSegIds());
+        assertTrue(p.stages().get(Pipeline.ROWS).done());
+    }
+
+    @Test
+    void keepsEditedRowsWhenNothingReran() throws Exception {
+        Path file = newProject(List.of());
+        Project first = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Project.Row r = first.rows().getFirst();
+        List<Project.Row> edited = new ArrayList<>(first.rows());
+        edited.set(0, new Project.Row(r.id(), r.kind(), r.startMs(), r.speakerId(), "고친 말", "直した", r.segIds(), List.of()));
+        ProjectStore.save(withRows(first, edited), file);
+
+        Project p = Pipeline.run(file, () -> { throw new AssertionError("STT"); },
+                () -> { throw new AssertionError("화자 구분"); }, (s, f) -> {});
+
+        assertEquals(edited, p.rows());
+    }
+
+    /** 새 STT를 저장한 뒤 멈추면 옛 행이 새 구간 id와 어긋난다. 다음 실행이 STT는 건너뛰고 행은 다시 만들어야 한다. */
+    @Test
+    void cancelAfterNewSttForcesRowRebuildOnResume() throws Exception {
+        Path file = newProject(List.of());
+        Project first = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        ProjectStore.save(withRows(first, List.of()), file);
+        Files.delete(file.resolveSibling(ProjectFiles.STT));
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+        Pipeline.Opener<Diarizer> interrupting = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) {
+                Thread.currentThread().interrupt();
+                return DIAR;
+            }
+        };
+
+        assertThrows(InterruptedException.class, () -> Pipeline.run(file, FakeStt::new, interrupting, (s, f) -> {}));
+        assertFalse(ProjectStore.load(file).stages().containsKey(Pipeline.ROWS));
+        log.clear();
+
+        Project p = Pipeline.run(file, () -> { throw new AssertionError("STT를 다시 돌리면 안 된다"); },
+                FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of("open diar", "close diar"), log);
+        assertEquals(3, p.rows().size());
+        assertTrue(p.stages().get(Pipeline.ROWS).done());
+    }
+
+    /** 화자 구분이 실패해도 STT 결과는 남고, 다시 돌리면 STT를 건너뛴다. */
+    @Test
+    void failedDiarizationKeepsSttForResume() throws Exception {
+        Path file = newProject(List.of());
+        Pipeline.Opener<Diarizer> failing = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) throws IOException {
+                throw new IOException("실패");
+            }
+        };
+
+        assertThrows(IOException.class, () -> Pipeline.run(file, FakeStt::new, failing, (s, f) -> {}));
+        assertEquals(List.of("open stt", "close stt", "open diar", "close diar"), log);
+        assertEquals(STT, StageStore.loadStt(file.resolveSibling(ProjectFiles.STT)));
+        log.clear();
+
+        Project p = Pipeline.run(file, () -> { throw new AssertionError("STT를 다시 돌리면 안 된다"); },
+                FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of("open diar", "close diar"), log);
+        assertEquals(3, p.rows().size());
+    }
+
+    /** 결과 파일을 쓰기 전에 옛 완료 표시가 디스크에서 지워져 있어야 한다. 새 stt.json 뒤 project.json 저장 전에 멈춰도 어긋나지 않는다. */
+    @Test
+    void rerunClearsStageAndRowsFlagsBeforeEngineRuns() throws Exception {
+        Path file = newProject(List.of());
+        Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Files.delete(file.resolveSibling(ProjectFiles.STT));
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+        List<java.util.Set<String>> seen = new ArrayList<>();
+        Pipeline.Opener<Transcriber> stt = () -> new FakeStt() {
+            @Override
+            public SttResult transcribe(Path audio, DoubleConsumer progress) throws InterruptedException {
+                seen.add(load(file).stages().keySet());
+                return STT;
+            }
+        };
+        Pipeline.Opener<Diarizer> diar = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) {
+                seen.add(load(file).stages().keySet());
+                return DIAR;
+            }
+        };
+
+        Pipeline.run(file, stt, diar, (s, f) -> {});
+
+        assertEquals(List.of(java.util.Set.of("import", Pipeline.DIAR), java.util.Set.of("import", Pipeline.STT)), seen);
+    }
+
+    static Project load(Path file) {
+        try {
+            return ProjectStore.load(file);
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    void pendingFollowsDoneFlagAndResultFile() throws Exception {
+        Path file = newProject(List.of());
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+
+        assertFalse(Pipeline.pending(file, p, Pipeline.STT));
+        assertTrue(Pipeline.pending(file, p, Pipeline.DIAR));
+    }
+
+    @Test
+    void missingModelsOnlyForPendingStages(@TempDir Path models) {
+        try (koja.runtime.ModelStore store = new koja.runtime.ModelStore(models)) {
+            assertEquals(LocalEngines.DIAR_MODELS, LocalEngines.missing(store, false, true));
+            assertEquals(List.of(), LocalEngines.missing(store, false, false));
+        }
+    }
+
+    @Test
+    void rebuildsRowsOnlyWhenAStageOrRowsArePending() throws Exception {
+        Path file = newProject(List.of());
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        assertFalse(Pipeline.rebuildsRows(file, p));
+
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+        assertTrue(Pipeline.rebuildsRows(file, p));
+    }
+
+    /** 작은 sherpa 모델은 설치돼 있어도 매번 확인한다(손상되면 다시 받게). 1.6GB whisper 파일은 CI에서 만들지 않는다. */
+    @Test
+    void ensuresPendingStageModels(@TempDir Path models) {
+        try (koja.runtime.ModelStore store = new koja.runtime.ModelStore(models)) {
+            assertEquals(LocalEngines.STT_MODELS, LocalEngines.toEnsure(store, true, false));
+            assertEquals(LocalEngines.DIAR_MODELS, LocalEngines.toEnsure(store, false, true));
+        }
+    }
+
+    static Project withRows(Project p, List<Project.Row> rows) {
+        return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), rows,
+                p.ignoredSegIds(), p.glossary(), p.stages());
     }
 
     static Project withSpeakers(Project p, List<Speaker> speakers) {

@@ -40,7 +40,10 @@ public final class KojaApp extends Application {
         MenuItem save = new MenuItem("저장");
         save.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
         save.setOnAction(e -> save());
-        MenuBar menus = new MenuBar(new Menu("파일", null, importItem, open, dummy, save));
+        MenuItem process = new MenuItem("전사·화자 구분 실행");
+        process.setAccelerator(KeyCombination.keyCombination("Shortcut+R"));
+        process.setOnAction(e -> processOpen());
+        MenuBar menus = new MenuBar(new Menu("파일", null, importItem, open, dummy, save), new Menu("처리", null, process));
 
         stage.setTitle("koja");
         stage.setScene(new Scene(new BorderPane(review, menus, null, null, null), 1280, 720));
@@ -107,12 +110,14 @@ public final class KojaApp extends Application {
             return;
         }
         Path dir = chosenDir.toPath();
-        Path file = dir.resolve("project.json");
+        Path file = dir.resolve(ProjectFiles.PROJECT);
         // 다른 영상의 프로젝트나 프록시를 덮어쓰지 않는다.
+        // 가져오기 뒤 처리가 stt.json·diar.json을 쓰므로 그것도 본다.
         if (Files.exists(file) || Files.exists(dir.resolve(ProjectFiles.PROXY))
-                || Files.exists(dir.resolve(ProjectFiles.AUDIO))) {
-            error("가져올 수 없습니다", new IOException("project.json, " + ProjectFiles.PROXY + ", " + ProjectFiles.AUDIO
-                    + " 중 하나가 이미 있는 폴더입니다. 빈 폴더를 고르세요."));
+                || Files.exists(dir.resolve(ProjectFiles.AUDIO)) || Files.exists(dir.resolve(ProjectFiles.STT))
+                || Files.exists(dir.resolve(ProjectFiles.DIAR))) {
+            error("가져올 수 없습니다", new IOException("project.json, " + ProjectFiles.PROXY + ", " + ProjectFiles.AUDIO + ", "
+                    + ProjectFiles.STT + ", " + ProjectFiles.DIAR + " 중 하나가 이미 있는 폴더입니다. 빈 폴더를 고르세요."));
             return;
         }
         Path source = video.toPath().toAbsolutePath();
@@ -144,7 +149,25 @@ public final class KojaApp extends Application {
                 alert.showAndWait();
             }
             show(project, file);
+            process(file);
         }, e -> error("가져오기에 실패했습니다", e instanceof Exception ex ? ex : new IOException(e)));
+    }
+
+    /** 열린 프로젝트를 다시 처리한다. 끝난 단계는 건너뛰므로 취소·실패 뒤 이어 하기도 이것이다. */
+    private void processOpen() {
+        if (review.file() == null) {
+            error("실행할 수 없습니다", new IOException("먼저 프로젝트를 가져오거나 여세요."));
+            return;
+        }
+        // 파이프라인은 디스크의 project.json을 읽어 고친다. 저장 안 한 편집은 덮인다.
+        if (!confirmDiscard()) {
+            return;
+        }
+        process(review.file());
+    }
+
+    private void process(Path file) {
+        PipelineDialog.run(stage, file, project -> show(project, file), () -> open(file));
     }
 
     private void createDummy() {
