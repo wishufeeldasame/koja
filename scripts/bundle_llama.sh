@@ -10,14 +10,38 @@ set -euo pipefail
 
 OUT="${1:-app/build/llama}"
 CUDA_OUT="${2:-app/build/cuda}"
-# 끝 슬래시만 다른 동일 경로도 걸러 낸다.
-out_norm="${OUT%/}"
-cuda_norm="${CUDA_OUT%/}"
-[ "${out_norm:-/}" != "${cuda_norm:-/}" ] || { echo "llama와 cuda 출력 폴더가 같다: $OUT" >&2; exit 1; }
+
+norm_path() { # 상대·`.`·`..`·끝 슬래시를 정규화한다(윈도우 드라이브 문자 포함).
+  local p="$1"
+  p="${p//\\//}"
+  if [[ "$p" != /* && "$p" != [A-Za-z]:/* ]]; then
+    p="$PWD/$p"
+  fi
+  local prefix=""
+  if [[ "$p" == [A-Za-z]:/* ]]; then
+    prefix="${p:0:2}"
+    p="${p:2}"
+  fi
+  local -a parts out=()
+  IFS='/' read -r -a parts <<< "$p"
+  local part
+  for part in "${parts[@]}"; do
+    if [ -z "$part" ] || [ "$part" = "." ]; then
+      continue
+    elif [ "$part" = ".." ]; then
+      [ "${#out[@]}" -gt 0 ] && unset 'out[${#out[@]}-1]'
+    else
+      out+=("$part")
+    fi
+  done
+  local IFS='/'
+  printf '%s/%s' "$prefix" "${out[*]}"
+}
 
 LLAMA_TAG=b12655
 LLAMA_BUILD=12655
 LLAMA_COMMIT=969d7333172c522d6a60fffb8dd35288ce8df236
+MACOS_MIN=13.3
 GH_BASE="https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_TAG"
 
 MAC_ARCHIVE="llama-$LLAMA_TAG-bin-macos-arm64.tar.gz"
@@ -59,6 +83,19 @@ case "$(uname -s)" in
     exit 1
     ;;
 esac
+
+out_abs=$(norm_path "$OUT")
+cuda_abs_check=$(norm_path "$CUDA_OUT")
+out_cmp="$out_abs"
+cuda_cmp="$cuda_abs_check"
+if [ "$os" = win ]; then
+  out_cmp=$(printf '%s' "$out_cmp" | tr '[:upper:]' '[:lower:]')
+  cuda_cmp=$(printf '%s' "$cuda_cmp" | tr '[:upper:]' '[:lower:]')
+fi
+if [ "$out_cmp" = "$cuda_cmp" ] || [[ "$out_cmp" == "$cuda_cmp"/* ]] || [[ "$cuda_cmp" == "$out_cmp"/* ]]; then
+  echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
+  exit 1
+fi
 
 sha256() {
   if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
@@ -118,7 +155,7 @@ cuda_ready() { # dir
 }
 
 if [ "$os" = mac ]; then
-  notice="llama.cpp $LLAMA_TAG (MIT License), macOS arm64 Metal 공식 빌드 (koja 번들)
+  notice="llama.cpp $LLAMA_TAG (MIT License), macOS arm64 Metal 공식 빌드 (macOS $MACOS_MIN 이상, koja 번들)
 릴리스: https://github.com/ggml-org/llama.cpp/releases/tag/$LLAMA_TAG
 커밋: https://github.com/ggml-org/llama.cpp/tree/$LLAMA_COMMIT
 파일: $MAC_ARCHIVE
@@ -225,6 +262,8 @@ if [ "$os" = mac ]; then
       exit 1
     fi
   done
+  minos=$(vtool -show-build "$bin" | awk '/minos/ {print $2}')
+  [ "$minos" = "$MACOS_MIN" ] || { echo "최소 macOS가 $MACOS_MIN이 아니다: $minos" >&2; exit 1; }
   ver=$("$bin" --version 2>&1)
   grep -q "build $LLAMA_BUILD" <<< "$ver" || { echo "버전 불일치: $ver" >&2; exit 1; }
   printf '%s\n' "$ver" | head -n 2

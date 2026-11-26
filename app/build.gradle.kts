@@ -282,6 +282,15 @@ tasks.register<Exec>("jpackage") {
                 throw GradleException("번들 ${dir.name}이(가) 없다: ${dir}. 먼저 scripts/bundle_ffmpeg.sh, scripts/bundle_whisper.sh, scripts/bundle_llama.sh를 실행한다")
             }
         }
+        if (windows) {
+            val sharedCudaDlls = listOf("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll")
+            for (dir in bundleDirs.keys.filter { it.name == "llama" || it.name == "whisper" }) {
+                val dup = sharedCudaDlls.firstOrNull { dir.resolve(it).isFile }
+                if (dup != null) {
+                    throw GradleException("공유 CUDA DLL이 ${dir.name} 폴더에 중복돼 있다: $dup. 먼저 scripts/bundle_${dir.name}.sh를 다시 실행한다")
+                }
+            }
+        }
         val jniLib = if (windows) "sherpa-onnx-jni.dll" else if (os.contains("mac")) "libsherpa-onnx-jni.dylib" else "libsherpa-onnx-jni.so"
         val requiredSherpaFiles = listOf(
             jniLib,
