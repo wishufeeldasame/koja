@@ -7,11 +7,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * {@code llama-server} 실행 파일 위치와 OS별 실행 환경(D-005, D-065).
+ * {@code llama-server} 실행 파일 위치와 OS별 실행 환경(D-005, D-060, D-065, D-069).
  * 번들 위치와 OS 분기는 {@code runtime} 패키지 한곳에 모은다.
  */
 public final class LlamaServer {
     public static final String BUNDLE_DIR = "llama";
+    public static final String CUDA_DIR = "cuda";
     public static final String EXECUTABLE_BASE = "llama-server";
     public static final String ENV_EXECUTABLE = "KOJA_LLAMA_SERVER";
 
@@ -76,8 +77,39 @@ public final class LlamaServer {
         return CLEARED_ENV_PREFIXES;
     }
 
-    /** OS별 추가 프로세스 환경 변수. */
+    /**
+     * OS별 추가 프로세스 환경 변수.
+     * 윈도우 설치판은 CUDA 런타임 DLL이 {@code llama/} 옆 {@code cuda/}에 있어 {@code PATH} 맨 앞에 붙인다(D-060, D-069).
+     */
     public static Map<String, String> processEnvironment(String executable) {
-        return Map.of();
+        return processEnvironment(executable, System.getProperty("os.name"), System.getenv());
+    }
+
+    /**
+     * 윈도우 환경 변수 이름은 보통 {@code Path}이고 Java 자식 환경 맵은 대소문자를 가리므로,
+     * 부모 환경의 실제 키 이름으로 덮어써 중복 {@code Path}/{@code PATH}를 막는다(D-060).
+     */
+    static Map<String, String> processEnvironment(String executable, String osName, Map<String, String> env) {
+        if (!AppPaths.isWindows(osName) || executable == null || executable.isBlank()) {
+            return Map.of();
+        }
+        Path exePath = Path.of(executable.trim());
+        if (exePath.getParent() == null) {
+            return Map.of();
+        }
+        Path parent = exePath.toAbsolutePath().normalize().getParent();
+        if (parent == null) {
+            return Map.of();
+        }
+        Path cuda = parent.resolveSibling(CUDA_DIR);
+        if (!Files.isDirectory(cuda)) {
+            return Map.of();
+        }
+        Map<String, String> parentEnv = env == null ? Map.of() : env;
+        String key = parentEnv.keySet().stream().filter(k -> k.equalsIgnoreCase("PATH")).findFirst().orElse("PATH");
+        String path = parentEnv.get(key);
+        // 윈도우 PATH 구분자는 항상 ';'다(맥 단위 테스트에서도 실제 윈도우 값을 검증한다).
+        String value = path == null || path.isBlank() ? cuda.toString() : cuda + ";" + path;
+        return Map.of(key, value);
     }
 }

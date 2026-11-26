@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -56,8 +58,38 @@ class LlamaServerTest {
     @Test
     void clearsLlamaArgAndLogEnvironmentPrefixes() {
         assertEquals(
-                java.util.List.of("LLAMA_ARG_", "LLAMA_LOG_", "LLAMA_API_KEY"),
+                List.of("LLAMA_ARG_", "LLAMA_LOG_", "LLAMA_API_KEY"),
                 LlamaServer.clearedEnvironmentPrefixes());
+    }
+
+    @Test
+    void prependsSiblingCudaDirOnWindowsPreservingPathKeyCase(@TempDir Path dir) throws IOException {
+        Path root = dir.resolve("앱 폴더").resolve("koja");
+        Path exe = touch(root.resolve("llama").resolve("llama-server.exe"));
+        Path cuda = Files.createDirectories(root.resolve("cuda"));
+
+        Map<String, String> env = LlamaServer.processEnvironment(
+                exe.toString(), "Windows 11", Map.of("Path", "C:\\Windows", "TEMP", "t"));
+        assertEquals(Map.of("Path", cuda + ";C:\\Windows"), env);
+
+        assertEquals(
+                Map.of("PATH", cuda.toString()),
+                LlamaServer.processEnvironment(exe.toString(), "Windows 11", Map.of()));
+        assertEquals(
+                Map.of("Path", cuda.toString()),
+                LlamaServer.processEnvironment(exe.toString(), "Windows 11", Map.of("Path", "  ")));
+    }
+
+    @Test
+    void skipsCudaPathOnMacWithoutCudaDirOrForBareCommandName(@TempDir Path dir) throws IOException {
+        Path root = dir.resolve("koja");
+        Path exe = touch(root.resolve("llama").resolve("llama-server.exe"));
+
+        assertEquals(Map.of(), LlamaServer.processEnvironment(exe.toString(), "Windows 11", Map.of("PATH", "x")));
+        Files.createDirectories(root.resolve("cuda"));
+        assertEquals(Map.of(), LlamaServer.processEnvironment(exe.toString(), "Mac OS X", Map.of("PATH", "x")));
+        assertEquals(Map.of(), LlamaServer.processEnvironment("llama-server.exe", "Windows 11", Map.of("PATH", "x")));
+        assertEquals(Map.of(), LlamaServer.processEnvironment(" ", "Windows 11", Map.of("PATH", "x")));
     }
 
     private static Path touch(Path file) throws IOException {

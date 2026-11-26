@@ -427,6 +427,26 @@ class LlamaServerClientTest {
         assertEquals(16_947_541_728L, LlamaModel.GEMMA_4_26B.spec().expectedSize());
     }
 
+    @Test
+    void passesProcessEnvironmentAndClearedPrefixesToLocalServerConfig(@TempDir Path dir) throws IOException {
+        Path model = dir.resolve("dummy.gguf");
+        Files.writeString(model, "dummy", StandardCharsets.UTF_8);
+        Path exe = dir.resolve("koja").resolve("llama").resolve("llama-server.exe");
+        Files.createDirectories(exe.getParent());
+        Files.createFile(exe);
+        java.util.Map<String, String> expectedEnv = java.util.Map.of("Path", "C:\\koja\\cuda;C:\\Windows");
+
+        LlamaServerClient.Config config = LlamaServerClient.builder(model)
+                .executable(exe.toString())
+                .build();
+        LocalServer.Config serverConfig = LlamaServerClient.buildServerConfig(
+                config, exe.toString(), port -> List.of(exe.toString()), expectedEnv);
+
+        assertEquals(expectedEnv, serverConfig.environment());
+        assertEquals(koja.runtime.LlamaServer.clearedEnvironmentPrefixes(), serverConfig.unsetEnvironmentPrefixes());
+        assertEquals(exe.getParent().toAbsolutePath().normalize(), serverConfig.workingDirectory());
+    }
+
     private static LlamaServerClient startManagedFakeClient(Path model, String mode, Path argsDump) throws IOException {
         LlamaServerClient.Config config = LlamaServerClient.builder(model)
                 .executable("llama-server")
