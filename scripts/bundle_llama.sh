@@ -15,15 +15,47 @@ CUDA_OUT_ARG="${2-}"
 parent_dir() { # os=win에서만 역슬래시를 구분자로 정규화하고 끝 슬래시를 제거한 뒤 상위 디렉터리를 반환한다.
   local p="$1"
   [ "$os" = win ] && p="${p//\\//}"
-  while [ "${#p}" -gt 1 ] && [[ "$p" == */ ]]; do
-    p="${p%/}"
-  done
+  if [ "$os" = win ] && [[ "$p" == [A-Za-z]:/* || "$p" == [A-Za-z]: ]]; then
+    local rest="${p:2}"
+    while [ -n "$rest" ] && [[ "$rest" == */ ]]; do
+      rest="${rest%/}"
+    done
+    if [ -z "$rest" ]; then
+      printf '%s/' "${p:0:2}"
+      return
+    fi
+    p="${p:0:2}$rest"
+  else
+    while [ "${#p}" -gt 1 ] && [[ "$p" == */ ]]; do
+      p="${p%/}"
+    done
+  fi
   local d
   d=$(dirname -- "$p")
   if [ "$os" = win ] && [[ "$d" == [A-Za-z]: ]]; then
     d="$d/"
   fi
   printf '%s' "$d"
+}
+
+# 두 경로가 실제로 존재하는 시점에 inode(-ef)로 동일·상하 포함 관계를 확인한다(비ASCII 대소문자·8.3 단축명·정션 대응).
+paths_collide_fs() { # path_a path_b
+  local a b pair cur target prev
+  a=$(norm_path "$1")
+  b=$(norm_path "$2")
+  for pair in ab ba; do
+    if [ "$pair" = ab ]; then cur="$a"; target="$b"; else cur="$b"; target="$a"; fi
+    [ -e "$target" ] || continue
+    while :; do
+      if [ -e "$cur" ] && [ "$cur" -ef "$target" ]; then
+        return 0
+      fi
+      prev="$cur"
+      cur=$(parent_dir "$cur")
+      [ "$cur" = "$prev" ] && break
+    done
+  done
+  return 1
 }
 
 reject_bad_target() { # 심볼릭 링크·끝 `.`/`..` 세그먼트·윈도우 UNC 경로를 배치 전에 거부한다.
@@ -395,11 +427,19 @@ else
 fi
 
 if [ "$stage" != "$OUT" ]; then
+  if [ "$os" = win ] && paths_collide_fs "$OUT" "$CUDA_OUT"; then
+    echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
+    exit 1
+  fi
   rm -rf "$OUT"
   mkdir -p "$(parent_dir "$OUT")"
   mv "$stage" "$OUT"
 fi
 if [ "$os" = win ] && [ "$cuda_stage" != "$CUDA_OUT" ]; then
+  if paths_collide_fs "$OUT" "$CUDA_OUT"; then
+    echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
+    exit 1
+  fi
   rm -rf "$CUDA_OUT"
   mkdir -p "$(parent_dir "$CUDA_OUT")"
   mv "$cuda_stage" "$CUDA_OUT"
