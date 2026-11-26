@@ -264,10 +264,14 @@ tasks.register<Exec>("jpackage") {
     val outDir = layout.buildDirectory.dir("jpackage").get().asFile
     val runtimeJars = configurations.runtimeClasspath
     val appJar = tasks.jar.flatMap { it.archiveFile }
-    // scripts/bundle_*.sh가 만든다. 앱 안에서는 맥 Contents/<폴더>, 윈도우 <앱 폴더>/<폴더>가 된다(D-042, D-059).
+    // scripts/bundle_*.sh가 만든다. 앱 안에서는 맥 Contents/<폴더>, 윈도우 <앱 폴더>/<폴더>가 된다(D-042, D-059, D-065, D-069).
     // 폴더 → 들어 있어야 할 파일. cuda/는 윈도우만 있다(whisper-server·llama-server가 함께 쓰는 CUDA 런타임, D-060).
     val exe = if (windows) ".exe" else ""
-    val bundles = linkedMapOf("ffmpeg" to "ffmpeg$exe", "whisper" to "whisper-server$exe")
+    val bundles = linkedMapOf(
+        "ffmpeg" to "ffmpeg$exe",
+        "whisper" to "whisper-server$exe",
+        "llama" to "llama-server$exe",
+    )
     if (windows) bundles["cuda"] = "cudart64_12.dll"
     val bundleDirs = bundles.mapKeys { layout.buildDirectory.dir(it.key).get().asFile }
     val sherpaDir = sherpaNativeDir.get().asFile
@@ -275,7 +279,7 @@ tasks.register<Exec>("jpackage") {
     doFirst {
         for ((dir, file) in bundleDirs) {
             if (!dir.resolve(file).isFile || !dir.resolve("NOTICE.txt").isFile) {
-                throw GradleException("번들 ${dir.name}이(가) 없다: ${dir}. 먼저 scripts/bundle_ffmpeg.sh, scripts/bundle_whisper.sh를 실행한다")
+                throw GradleException("번들 ${dir.name}이(가) 없다: ${dir}. 먼저 scripts/bundle_ffmpeg.sh, scripts/bundle_whisper.sh, scripts/bundle_llama.sh를 실행한다")
             }
         }
         val jniLib = if (windows) "sherpa-onnx-jni.dll" else if (os.contains("mac")) "libsherpa-onnx-jni.dylib" else "libsherpa-onnx-jni.so"

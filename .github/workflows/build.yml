@@ -55,6 +55,16 @@ jobs:
         shell: bash
         run: scripts/bundle_whisper.sh app/build/whisper app/build/cuda
 
+      # 맥은 16MB, 윈도우는 358MB를 받는다. 공유 app/build/cuda는 위 whisper 캐시에 포함되므로 llama 폴더만 캐시한다(D-060, D-069).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/build/llama
+          key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bundle_llama.sh') }}
+
+      - name: llama-server 받기·검사
+        shell: bash
+        run: scripts/bundle_llama.sh app/build/llama app/build/cuda
+
       # 설치파일은 실행 아티팩트로만 올린다. Releases에는 올리지 않는다(D-024).
       - name: 설치파일 만들기
         shell: bash
@@ -73,6 +83,12 @@ jobs:
           help=$("$mnt/koja.app/Contents/whisper/whisper-server" --help 2>&1) || true
           grep -q -- "--inference-path" <<< "$help" || { echo "$help"; exit 1; }
           ls "$mnt/koja.app/Contents/whisper"
+          test -f "$mnt/koja.app/Contents/llama/NOTICE.txt"
+          test -f "$mnt/koja.app/Contents/llama/LICENSE"
+          ver=$("$mnt/koja.app/Contents/llama/llama-server" --version 2>&1)
+          grep -q "build 12655" <<< "$ver" || { echo "$ver"; exit 1; }
+          printf '%s\n' "$ver" | head -n 2
+          ls "$mnt/koja.app/Contents/llama"
           test -f "$mnt/koja.app/Contents/sherpa-native/libsherpa-onnx-jni.dylib"
           test -f "$mnt/koja.app/Contents/sherpa-native/libonnxruntime.dylib"
           test -f "$mnt/koja.app/Contents/sherpa-native/LICENSE-sherpa-onnx.txt"
@@ -104,6 +120,18 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $help = (& $whisper --help 2>&1 | Out-String)
           if ($help -notmatch '--inference-path') { throw "whisper-server --help 실패: $help" }
+          # 앱이 찾는 위치(koja.runtime.LlamaServer): llama\ 와 그 옆 cuda\ (D-060, D-065, D-069).
+          $llama = Join-Path $launcher.DirectoryName 'llama\llama-server.exe'
+          foreach ($f in @($llama, (Join-Path $launcher.DirectoryName 'llama\NOTICE.txt'), (Join-Path $launcher.DirectoryName 'llama\LICENSE'), (Join-Path $launcher.DirectoryName 'llama\LICENSE-LLVM-OpenMP'))) {
+            if (-not (Test-Path $f)) { throw "없음: $f" }
+          }
+          foreach ($dup in @('cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll')) {
+            $dupPath = Join-Path $launcher.DirectoryName "llama\$dup"
+            if (Test-Path $dupPath) { throw "CUDA DLL이 llama 폴더에 중복됨: $dupPath" }
+          }
+          $llamaVer = (& $llama --version 2>&1 | Out-String)
+          if ($llamaVer -notmatch 'build 12655') { throw "llama-server --version 실패: $llamaVer" }
+          $llamaVer -split "`r?`n" | Select-Object -First 2
           foreach ($f in @('sherpa-onnx-jni.dll', 'onnxruntime.dll', 'NOTICE.txt', 'LICENSE-sherpa-onnx.txt', 'LICENSE-onnxruntime.txt', 'ThirdPartyNotices-onnxruntime.txt')) {
             $p = Join-Path $launcher.DirectoryName "sherpa-native\$f"
             if (-not (Test-Path $p)) { throw "sherpa-native 파일 없음: $p" }
