@@ -6,6 +6,10 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 ## Unreleased
 
 ### 추가
+- AGENTS.md에 에이전트 역할 분담과 병렬 작업 규칙(워커 최대 4개) 추가, 코드 리뷰 기본 리뷰어를 Codex로 명시, OpenCode를 선택 도구로 변경
+- 코드 변경이 없는 PR(문서·양식·CI 설정)은 리뷰와 `./gradlew test`를 생략할 수 있게 규칙과 PR 양식을 변경
+- PR 양식에 로컬 검사 절을 추가하고 리뷰 절을 PR 후 리뷰 흐름(리뷰한 도구, 리뷰 코멘트 링크)에 맞게 변경
+- 코드 리뷰 흐름을 "PR 전 리뷰"에서 "draft PR 업로드 → 다른 도구가 리뷰하고 PR 코멘트로 기록 → 수정 → 병합"으로 변경
 - 프로젝트 문서: README, AGENTS.md(모든 AI 도구 공통 작업 규칙), 설계(docs/설계.md), 결정 기록(docs/결정기록.md)
 - 프로젝트 에이전트 3종(spec-reviewer, cross-platform-checker, eval-runner). 원본은 `.agents/agents/`, Claude Code·Codex·OpenCode용 파일은 `scripts/sync_agents.py`로 생성
 - PR 양식(.github/pull_request_template.md)과 PR 검사 워크플로(.github/workflows/pr-checks.yml): 에이전트 동기화, 비공개 경로, PR 제목 형식, CHANGELOG 갱신

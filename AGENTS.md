@@ -1,6 +1,6 @@
 # AGENTS.md
 
-이 저장소에서 일하는 AI 에이전트(Claude Code, Codex, OpenCode/oh-my-opencode, Antigravity)와 사람을 위한 작업 규칙. 네 도구 모두 이 파일을 읽는다(Claude Code는 `CLAUDE.md`의 `@AGENTS.md`로 불러온다).
+이 저장소에서 일하는 AI 에이전트와 사람을 위한 작업 규칙. 주력 도구는 Antigravity, Claude Code, Codex 셋이고 OpenCode/oh-my-opencode는 선택이다. 모두 이 파일을 읽는다(Claude Code는 `CLAUDE.md`의 `@AGENTS.md`로 불러온다). 도구별 전용 지침 파일은 두지 않는다.
 
 ## 프로젝트 한 줄
 
@@ -130,7 +130,15 @@ scripts/bundle_ffmpeg.sh   # 설치파일에 넣을 LGPL ffmpeg를 app/build/ffm
 - 릴리스는 `develop` → `main` PR을 **merge commit**으로 병합한다. squash나 GitHub rebase 병합은 커밋을 새로 만들어 두 브랜치 이력이 갈라진다. 릴리스 PR에서 `CHANGELOG.md`의 `Unreleased`를 버전으로 바꾼다.
 - 작업 브랜치 이름은 `<종류>/<짧은 설명>`, 예: `feat/review-table`, `docs/decision-log`.
 - 커밋은 작은 단위로 하고, 메시지는 Conventional Commits 형식으로 쓴다. squash 병합 커밋 메시지는 PR 제목이므로 PR 제목도 같은 형식으로 쓴다.
-- PR 전에 **작성한 도구와 다른 모델**로 코드 리뷰를 돌린다. 예: Claude Code에서 작업했으면 Codex로 리뷰(`codex-review` 스킬, 안 되면 `/code-review`), Codex에서 작업했으면 Claude Code `/code-review` 등 다른 도구로. 어떤 리뷰를 돌렸는지, 못 돌렸으면 그 사실을 PR 설명에 쓴다.
+- 리뷰 흐름: 푸시 전 로컬 검사(`./gradlew test`, `python3 scripts/sync_agents.py --check`, `git diff --stat`으로 비공개 경로 확인) → **draft PR** 업로드 → **작성한 도구와 다른 모델**이 리뷰하고 결과를 PR 코멘트로 기록 → 작성자가 같은 PR에서 수정 → draft 해제 후 병합.
+  - 기본 리뷰어는 Codex(`codex-review` 스킬, 안 되면 `/code-review`)다. Codex가 작성한 PR은 Claude Code `/code-review`로 한다.
+  - 확실한 문제(버그, 보안, 데이터 손실)는 고치고, 취향 지적은 사용자에게 선택지로 남긴다.
+  - 저장소가 공개라 리뷰 코멘트에도 샘플 전사, 실제 출연자 이름, 요구사항 원문을 쓰지 않는다.
+  - 리뷰를 못 돌렸으면 draft로 두고 병합하지 않으며, 그 사실을 PR 설명에 쓴다.
+  - 리뷰 결과는 `gh pr comment`로 PR에 남긴다. 작성자와 리뷰어가 같은 GitHub 계정이라 정식 승인(Approve)은 못 쓴다. 코멘트 머리말에 리뷰한 도구를 적고(`## 리뷰: Codex`), 확실한 문제 / 취향 지적 / 확인한 것으로 나눈다. 수정 후 재리뷰는 새 코멘트로 남긴다.
+  - 리뷰어 도구가 안 돌면(미설치, 인증 실패, 타임아웃) `/code-review`로 대신하고, 둘 다 못 돌리면 draft로 두고 병합하지 않는다.
+  - **코드를 바꾸지 않는 PR**(문서·PR 양식·CI 설정 등)은 리뷰와 `./gradlew test`를 생략할 수 있다. 이때 PR 설명에 "코드 변경 없음, 리뷰 생략"을 쓰고, `sync_agents.py --check`와 비공개 경로 확인은 그대로 한다. 코드가 한 줄이라도 바뀌면 위 리뷰 흐름을 따른다.
+  - 이 절이 리뷰 흐름의 기준이다. 전역 지침에는 리뷰 규칙을 두지 않는다.
 - PR 설명에는 다음을 적는다: 맥/윈도우 중 어디서 확인했는지, 평가를 돌렸다면 수치 요약(전사 예시는 넣지 않음). 양식은 `.github/pull_request_template.md`.
 
 ### PR마다 문서화
@@ -158,6 +166,23 @@ PR 하나에 코드와 문서를 함께 넣는다. 문서를 다음 PR로 미루
 
 결정 기록·설계 문서 갱신과 PR 양식 체크박스는 기계로 판단할 수 없어서 리뷰에서 확인한다.
 
+## 역할 분담과 병렬 작업
+
+| 도구 | 맡는 일 | 맡지 않는 일 |
+|---|---|---|
+| Antigravity (Gemini) | 작업 분배, UI·검수 화면·일반 기능, 외부 연동 검증 | 파이프라인·검증기·데이터 모델을 단독으로 바꾸는 일 |
+| Antigravity (파트너 Claude/GPT) | 비상용. 한도가 남을 때 아주 단순한 작업(문구·포맷·단순 리팩터링 등) | 규칙에 닿는 변경 |
+| Claude Code | 핵심 구현(여러 모듈이 얽힌 로직, 동시성·보안, 고난도 디버깅) | |
+| Codex | 전담 코드 리뷰, 독립 기능 구현 | 자기가 쓴 PR 리뷰 |
+| OpenCode (선택) | 단위 테스트, 린트·타입 정리 같은 자투리 | 규칙에 닿는 변경 |
+
+- 병렬 워커는 **최대 4개**다.
+- 한 작업은 워크트리 하나, 브랜치 하나를 쓴다.
+- `module-info.java`, `build.gradle.kts`, `CHANGELOG.md`, `docs/설계.md`처럼 여럿이 고치는 파일은 한 워커만 맡는다.
+- 작업을 맡길 때 "AGENTS.md를 읽고 절대 규칙을 지킬 것"과 건드리면 안 되는 파일을 지시문에 쓴다.
+- 분배한 쪽은 결과를 확인하지 않고 병합하지 않는다.
+- 어느 도구가 썼든 윈도우 CUDA 경로는 윈도우 실기에서 사람이 확인한다.
+
 ## 프로젝트 에이전트
 
 원본은 `.agents/agents/<이름>.md` 하나다. 도구별 파일은 원본을 가리키는 얇은 껍데기이고 `scripts/sync_agents.py`가 만든다.
@@ -167,7 +192,7 @@ PR 하나에 코드와 문서를 함께 넣는다. 문서를 다음 PR로 미루
 | Antigravity (`agy`) | `.agents/agents/*.md` | **원본** |
 | Claude Code | `.claude/agents/*.md` | 생성 |
 | Codex | `.codex/agents/*.toml` | 생성 |
-| OpenCode / oh-my-opencode | `.opencode/agents/*.md` | 생성 |
+| OpenCode / oh-my-opencode (선택) | `.opencode/agents/*.md` | 생성 |
 
 - 에이전트를 고치거나 추가할 때는 원본만 고치고 `python3 scripts/sync_agents.py`를 돌린다. 생성 파일을 직접 고치지 않는다.
 - 커밋 전에 `python3 scripts/sync_agents.py --check`가 통과해야 한다(생성 파일이 원본과 맞는지 확인).
