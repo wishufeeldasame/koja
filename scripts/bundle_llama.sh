@@ -250,10 +250,46 @@ NVIDIA CUDA Toolkit EULA 부록 A(재배포 가능 파일)·부록 B(cuBLAS 제3
 whisper-server와 llama-server가 함께 쓴다(koja D-060)."
 fi
 
+# 실행 파일·필수 백엔드 라이브러리·라이선스·소유권 마커가 모두 있는지 확인한다.
+llama_files_ok() { # dir
+  [ -f "$1/$exe" ] && [ -f "$1/LICENSE" ] && [ -f "$1/NOTICE.txt" ] || return 1
+  [ "$(cat "$1/.koja-llama-bundle" 2> /dev/null || true)" = "koja-llama-bundle-v1" ] || return 1
+  local req
+  if [ "$os" = mac ]; then
+    for req in \
+      libllama-server-impl.dylib \
+      libllama.dylib \
+      libllama-common.dylib \
+      libmtmd.dylib \
+      libggml.dylib \
+      libggml-base.dylib \
+      libggml-cpu.dylib \
+      libggml-metal.dylib; do
+      [ -f "$1/$req" ] || return 1
+    done
+  else
+    for req in \
+      llama-server-impl.dll \
+      llama.dll \
+      llama-common.dll \
+      mtmd.dll \
+      ggml.dll \
+      ggml-base.dll \
+      ggml-cuda.dll \
+      libomp.dll \
+      LICENSE-LLVM-OpenMP; do
+      [ -f "$1/$req" ] || return 1
+    done
+    local cpu_dlls=("$1"/ggml-cpu-*.dll)
+    [ -f "${cpu_dlls[0]}" ] || return 1
+  fi
+  return 0
+}
+
 stage="$OUT"
 cuda_stage="$CUDA_OUT"
 need_llama=true
-if [ -f "$OUT/$exe" ] && [ -f "$OUT/LICENSE" ] && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null)" = "$notice" ]; then
+if llama_files_ok "$OUT" && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null || true)" = "$notice" ]; then
   need_llama=false
   if [ "$os" = win ]; then
     for f in "${CUDA_FILES[@]}"; do
@@ -315,6 +351,7 @@ else
         -d "$stage"
     fi
     printf '%s\n' "$notice" > "$stage/NOTICE.txt"
+    printf 'koja-llama-bundle-v1\n' > "$stage/.koja-llama-bundle"
   fi
 
   if $need_cuda; then
@@ -327,14 +364,11 @@ else
   fi
 fi
 
-# 검사: 실행 파일·백엔드 라이브러리·고지 파일이 빠짐없이 있고 버전이 일치해야 한다.
+# 검사: 실행 파일·백엔드 라이브러리·고지 파일·소유권 마커가 빠짐없이 있고 버전이 일치해야 한다.
 bin="$stage/$exe"
-[ -f "$bin" ] || { echo "실행 파일 없음: $bin" >&2; exit 1; }
-[ -f "$stage/LICENSE" ] || { echo "LICENSE 없음: $stage" >&2; exit 1; }
-[ -f "$stage/NOTICE.txt" ] || { echo "NOTICE.txt 없음: $stage" >&2; exit 1; }
+llama_files_ok "$stage" || { echo "필수 파일·라이선스 또는 소유권 마커 누락: $stage" >&2; exit 1; }
 
 if [ "$os" = mac ]; then
-  ls "$stage"/libggml-metal*.dylib > /dev/null 2>&1 || { echo "Metal 라이브러리 없음" >&2; exit 1; }
   for f in "$bin" "$stage"/*.dylib; do
     [ -L "$f" ] && continue
     deps=$(otool -L "$f")
@@ -350,9 +384,6 @@ if [ "$os" = mac ]; then
   grep -q "build $LLAMA_BUILD" <<< "$ver" || { echo "버전 불일치: $ver" >&2; exit 1; }
   printf '%s\n' "$ver" | head -n 2
 else
-  for req in llama-server-impl.dll llama.dll llama-common.dll mtmd.dll ggml.dll ggml-base.dll ggml-cuda.dll libomp.dll LICENSE-LLVM-OpenMP; do
-    [ -f "$stage/$req" ] || { echo "필수 파일 없음: $req" >&2; exit 1; }
-  done
   for f in "${CUDA_FILES[@]}"; do
     [ ! -f "$stage/$f" ] || { echo "CUDA 런타임 DLL이 llama 폴더에 중복됨: $f" >&2; exit 1; }
   done

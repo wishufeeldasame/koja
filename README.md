@@ -27,7 +27,7 @@
 | OS | 확인 대상 장비 | 로컬 AI 가속 |
 |---|---|---|
 | Windows 10/11 x64 | Ryzen 7 5800X3D + RTX 3060 Ti 8GB / RTX 3080 10GB, RAM 32GB 이상 | CUDA |
-| macOS (Apple Silicon) | M5 Pro 24GB | Metal |
+| macOS 13.3 이상 (Apple Silicon) | M5 Pro 24GB | Metal |
 
 AI 단계(음성 인식, 화자 구분, 구조화·번역, 화면 분석)마다 **로컬** 또는 **외부 API**를 고를 수 있게 만든다. 로컬을 먼저 구현한다.
 
@@ -62,7 +62,7 @@ JavaFX 앱
 ./gradlew run
 ```
 
-설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `scripts/bundle_ffmpeg.sh`로 LGPL ffmpeg를, `scripts/bundle_whisper.sh`로 whisper-server를, `scripts/bundle_llama.sh`로 llama-server를 준비한 뒤 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 설치파일에는 LGPL ffmpeg, whisper.cpp `whisper-server`, llama.cpp `llama-server`(맥 Metal / 윈도우 CUDA 12.4, 윈도우는 공유 `cuda/` NVIDIA CUDA 런타임 DLL 포함), `sherpa-onnx` 네이티브와 각각의 고지 파일이 들어 있다. 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
+설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `scripts/bundle_ffmpeg.sh`로 LGPL ffmpeg를, `scripts/bundle_whisper.sh`로 whisper-server를, `scripts/bundle_llama.sh`로 llama-server를 준비한 뒤 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 설치파일에는 LGPL ffmpeg, whisper.cpp `whisper-server`, llama.cpp `llama-server`(맥 macOS 13.3 이상 Metal / 윈도우 CUDA 12.4, 윈도우는 공유 `cuda/` NVIDIA CUDA 런타임 DLL 포함), `sherpa-onnx` 네이티브와 각각의 고지 파일이 들어 있다. 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
 
 가져오기에는 ffmpeg가 필요하다. 개발 중에는 `PATH`의 `ffmpeg`를 쓰고, 다른 것을 쓰려면 환경 변수 `KOJA_FFMPEG`에 경로를 준다. 설치판에는 LGPL 빌드를 넣을 예정이다(D-037).
 
