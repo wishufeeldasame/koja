@@ -234,19 +234,14 @@ public final class LlamaServerClient implements LlmClient {
 
     private static LlamaServerClient startWithCommand(
             Config config, String resolvedExecutable, IntFunction<List<String>> commandBuilder) throws IOException {
-        LocalServer.Builder serverBuilder = LocalServer.builder("llama-server", commandBuilder)
-                .portFromLog(LlamaServerClient::extractListeningPort)
-                .healthCheck(LocalServer.HealthCheck.jsonStatusOk("/health"))
-                .startupTimeout(config.startupTimeout())
-                .unsetEnvironmentPrefixes(LlamaServer.clearedEnvironmentPrefixes())
-                .environment(LlamaServer.processEnvironment(resolvedExecutable));
-        Path workDir = LlamaServer.workingDirectory(resolvedExecutable);
-        if (workDir != null) {
-            serverBuilder.workingDirectory(workDir);
-        }
+        LocalServer.Config serverConfig = buildServerConfig(
+                config,
+                resolvedExecutable,
+                commandBuilder,
+                LlamaServer.processEnvironment(resolvedExecutable));
         LocalServer started;
         try {
-            started = serverBuilder.start();
+            started = LocalServer.start(serverConfig);
         } catch (IOException e) {
             if (LlamaChatProtocol.isOutOfMemoryText(e.getMessage())) {
                 throw new OutOfMemoryException("llama-server 시작 중 메모리 부족(OOM): " + e.getMessage(), e);
@@ -261,6 +256,24 @@ public final class LlamaServerClient implements LlmClient {
                 config.requestTimeout(),
                 config.maxRetries(),
                 config.retryDelay());
+    }
+
+    static LocalServer.Config buildServerConfig(
+            Config config,
+            String resolvedExecutable,
+            IntFunction<List<String>> commandBuilder,
+            java.util.Map<String, String> processEnv) {
+        LocalServer.Builder serverBuilder = LocalServer.builder("llama-server", commandBuilder)
+                .portFromLog(LlamaServerClient::extractListeningPort)
+                .healthCheck(LocalServer.HealthCheck.jsonStatusOk("/health"))
+                .startupTimeout(config.startupTimeout())
+                .unsetEnvironmentPrefixes(LlamaServer.clearedEnvironmentPrefixes())
+                .environment(processEnv);
+        Path workDir = LlamaServer.workingDirectory(resolvedExecutable);
+        if (workDir != null) {
+            serverBuilder.workingDirectory(workDir);
+        }
+        return serverBuilder.build();
     }
 
     /** 단위 테스트에서 이미 떠 있는 가짜 HTTP 서버에 직접 붙을 때 쓴다. */

@@ -264,10 +264,14 @@ tasks.register<Exec>("jpackage") {
     val outDir = layout.buildDirectory.dir("jpackage").get().asFile
     val runtimeJars = configurations.runtimeClasspath
     val appJar = tasks.jar.flatMap { it.archiveFile }
-    // scripts/bundle_*.sh가 만든다. 앱 안에서는 맥 Contents/<폴더>, 윈도우 <앱 폴더>/<폴더>가 된다(D-042, D-059).
+    // scripts/bundle_*.sh가 만든다. 앱 안에서는 맥 Contents/<폴더>, 윈도우 <앱 폴더>/<폴더>가 된다(D-042, D-059, D-065, D-069).
     // 폴더 → 들어 있어야 할 파일. cuda/는 윈도우만 있다(whisper-server·llama-server가 함께 쓰는 CUDA 런타임, D-060).
     val exe = if (windows) ".exe" else ""
-    val bundles = linkedMapOf("ffmpeg" to "ffmpeg$exe", "whisper" to "whisper-server$exe")
+    val bundles = linkedMapOf(
+        "ffmpeg" to "ffmpeg$exe",
+        "whisper" to "whisper-server$exe",
+        "llama" to "llama-server$exe",
+    )
     if (windows) bundles["cuda"] = "cudart64_12.dll"
     val bundleDirs = bundles.mapKeys { layout.buildDirectory.dir(it.key).get().asFile }
     val sherpaDir = sherpaNativeDir.get().asFile
@@ -275,7 +279,61 @@ tasks.register<Exec>("jpackage") {
     doFirst {
         for ((dir, file) in bundleDirs) {
             if (!dir.resolve(file).isFile || !dir.resolve("NOTICE.txt").isFile) {
-                throw GradleException("번들 ${dir.name}이(가) 없다: ${dir}. 먼저 scripts/bundle_ffmpeg.sh, scripts/bundle_whisper.sh를 실행한다")
+                throw GradleException("번들 ${dir.name}이(가) 없다: ${dir}. 먼저 scripts/bundle_ffmpeg.sh, scripts/bundle_whisper.sh, scripts/bundle_llama.sh를 실행한다")
+            }
+        }
+        val llamaDir = bundleDirs.keys.first { it.name == "llama" }
+        val requiredLlamaFiles = if (windows) {
+            listOf(
+                "llama-server.exe",
+                "llama-server-impl.dll",
+                "llama.dll",
+                "llama-common.dll",
+                "mtmd.dll",
+                "ggml.dll",
+                "ggml-base.dll",
+                "ggml-cpu-x64.dll",
+                "ggml-cuda.dll",
+                "libomp.dll",
+                "LICENSE",
+                "LICENSE-LLVM-OpenMP",
+                "NOTICE.txt",
+            )
+        } else {
+            listOf(
+                "llama-server",
+                "libllama-server-impl.dylib",
+                "libllama.dylib",
+                "libllama-common.dylib",
+                "libmtmd.dylib",
+                "libggml.dylib",
+                "libggml-base.dylib",
+                "libggml-cpu.dylib",
+                "libggml-metal.dylib",
+                "LICENSE",
+                "NOTICE.txt",
+            )
+        }
+        val missingLlama = requiredLlamaFiles.filterNot { llamaDir.resolve(it).isFile }
+        if (missingLlama.isNotEmpty()) {
+            throw GradleException("번들 llama 필수 파일이 빠졌다(${missingLlama.joinToString(", ")}): $llamaDir. scripts/bundle_llama.sh를 다시 실행한다")
+        }
+        if (windows) {
+            val sharedCudaDlls = listOf("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll")
+            val cudaDir = bundleDirs.keys.first { it.name == "cuda" }
+            val missingCuda = (sharedCudaDlls + listOf("LICENSE.txt", "NOTICE.txt")).filterNot { cudaDir.resolve(it).isFile }
+            if (missingCuda.isNotEmpty()) {
+                throw GradleException("공유 cuda 필수 파일이 빠졌다(${missingCuda.joinToString(", ")}): $cudaDir. scripts/bundle_whisper.sh 또는 scripts/bundle_llama.sh를 다시 실행한다")
+            }
+            for (dir in bundleDirs.keys.filter { it.name == "llama" || it.name == "whisper" }) {
+                val dup = sharedCudaDlls.firstOrNull { dir.resolve(it).isFile }
+                if (dup != null) {
+                    val dupFile = dir.resolve(dup)
+                    throw GradleException(
+                        "공유 CUDA DLL이 ${dir.name} 폴더에 중복돼 있다: ${dupFile.path}. " +
+                            "해당 파일을 삭제하거나 ${dir.path}를 지운 뒤 scripts/bundle_${dir.name}.sh를 다시 실행한다",
+                    )
+                }
             }
         }
         val jniLib = if (windows) "sherpa-onnx-jni.dll" else if (os.contains("mac")) "libsherpa-onnx-jni.dylib" else "libsherpa-onnx-jni.so"
