@@ -185,7 +185,7 @@ public final class Pipeline {
     }
 
     private static String bestSpeaker(SttSegment s, List<Turn> turns, Map<String, String> ids) {
-        List<long[]> wordSpans = mergedWordSpans(s.words());
+        List<long[]> wordSpans = mergedWordSpans(s);
         if (!wordSpans.isEmpty()) {
             String best = bestSpeakerForSpans(wordSpans, turns, ids);
             if (best != null) {
@@ -208,15 +208,21 @@ public final class Pipeline {
         return best;
     }
 
-    /** 단어 시각 목록을 정렬·병합해 겹치지 않는 [startMs, endMs] 구간 목록으로 만든다. */
-    private static List<long[]> mergedWordSpans(List<Project.Word> words) {
+    /** 단어 시각을 부모 STT 구간 안으로 자른 뒤 정렬·병합해 겹치지 않는 [startMs, endMs] 목록으로 만든다. */
+    private static List<long[]> mergedWordSpans(SttSegment segment) {
+        List<Project.Word> words = segment.words();
         if (words == null || words.isEmpty()) {
             return List.of();
         }
         List<long[]> raw = new ArrayList<>(words.size());
         for (Project.Word w : words) {
-            if (w != null && w.endMs() > w.startMs()) {
-                raw.add(new long[] { w.startMs(), w.endMs() });
+            if (w == null) {
+                continue;
+            }
+            long start = Math.max(segment.startMs(), w.startMs());
+            long end = Math.min(segment.endMs(), w.endMs());
+            if (end > start) {
+                raw.add(new long[] { start, end });
             }
         }
         if (raw.isEmpty()) {

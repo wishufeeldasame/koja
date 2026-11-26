@@ -127,6 +127,7 @@ class SherpaEngineTest {
         assertThrows(IllegalArgumentException.class, () -> SherpaDiarizer.Config.withThreshold(0.0f));
         assertThrows(IllegalArgumentException.class, () -> SherpaDiarizer.Config.withNumClusters(0));
         assertThrows(IllegalArgumentException.class, () -> new Vad.Config(0.0f, 0.3f, 0.25f, 20.0f, 512, 0, 1));
+        assertThrows(IllegalArgumentException.class, () -> new Vad.Config(0.5f, 0.3f, 0.25f, 20.0f, 200, 0, 1));
 
         OfflineSpeakerDiarizationSegment[] raw = new OfflineSpeakerDiarizationSegment[] {
                 new OfflineSpeakerDiarizationSegment(2.5f, 4.0f, 1, 0.9f),
@@ -180,10 +181,16 @@ class SherpaEngineTest {
                 prevEnd = seg.endMs();
             }
 
-            // 취소(interrupt)
+            // 취소(interrupt): 호출 전 및 1초 입력의 진행률 콜백 안에서 들어온 취소 모두 감지
             Thread.currentThread().interrupt();
             try {
                 assertThrows(InterruptedException.class, () -> vad.detect(synth, null));
+            } finally {
+                Thread.interrupted();
+            }
+            float[] oneSec = new float[Vad.SAMPLE_RATE];
+            try {
+                assertThrows(InterruptedException.class, () -> vad.detect(oneSec, f -> Thread.currentThread().interrupt()));
             } finally {
                 Thread.interrupted();
             }
@@ -233,8 +240,9 @@ class SherpaEngineTest {
             StageStore.saveDiar(synthRes, diarJson);
             assertEquals(synthRes, StageStore.loadDiar(diarJson));
 
+            // 진행률 콜백 중 close()가 불려도 네이티브 호출이 끝난 뒤 안전하게 해제된다.
+            diarizer.diarize(synthWav, f -> diarizer.close());
             // 닫기 멱등성 및 닫힌 뒤 호출 거부
-            diarizer.close();
             diarizer.close();
             assertThrows(IllegalStateException.class, () -> diarizer.diarize(new float[1600], null));
         }

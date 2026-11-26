@@ -139,6 +139,20 @@ class PipelineTest {
     }
 
     @Test
+    void clampsWordSpansToParentSegmentBounds() {
+        // 구간은 0~1000ms인데 마지막 단어가 950~1200ms로 구간 밖까지 뻗어도 부모 구간 안(950~1000ms, A)만 센다.
+        SttResult stt = new SttResult(1, "x", List.of(
+                new SttSegment(1, 0, 1_000, "끝", "ko", null,
+                        List.of(new Project.Word(950, 1_200, "끝")), null)));
+        DiarResult diar = new DiarResult(1, "x", List.of(
+                new Turn(0, 1_000, "A"), new Turn(1_000, 2_000, "B")));
+        Project p = new Project(Project.CURRENT_VERSION, new Project.Source("a.mp4", 0), null, null,
+                List.of(), List.of(), List.of(), List.of(), null, Map.of());
+
+        assertEquals("S1", Pipeline.withSpeakers(p, stt, diar, true).sttSegments().get(0).speakerId());
+    }
+
+    @Test
     void interruptBetweenStagesCancelsBeforeSaving() throws Exception {
         Path file = newProject(List.of());
         Pipeline.Opener<Transcriber> interrupting = () -> new FakeStt() {

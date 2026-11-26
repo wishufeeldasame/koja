@@ -77,7 +77,10 @@ public final class SherpaDiarizer implements Diarizer {
 
     private final OfflineSpeakerDiarization nativeDiarizer;
     private final Config config;
-    private boolean closed;
+    private final Object stateLock = new Object();
+    private boolean inUse;
+    private boolean closeRequested;
+    private boolean released;
 
     private SherpaDiarizer(OfflineSpeakerDiarization nativeDiarizer, Config config) {
         this.nativeDiarizer = nativeDiarizer;
@@ -159,7 +162,7 @@ public final class SherpaDiarizer implements Diarizer {
 
     @Override
     public DiarResult diarize(Path audio, DoubleConsumer progress) throws IOException, InterruptedException {
-        ensureOpen();
+        ensureNotClosed();
         float[] samples = WavAudio.readMono16k(audio);
         return diarize(samples, progress);
     }
@@ -167,35 +170,45 @@ public final class SherpaDiarizer implements Diarizer {
     /** 16kHz 모노 float 샘플([-1.0, 1.0])에서 화자 턴을 추출한다. */
     public DiarResult diarize(float[] samples, DoubleConsumer progress) throws InterruptedException {
         Objects.requireNonNull(samples, "samples");
-        ensureOpen();
-        if (Thread.interrupted()) {
-            throw new InterruptedException("화자 구분 취소");
-        }
-        if (samples.length < MIN_SAMPLES) {
-            notifyProgress(progress, 1.0);
-            return new DiarResult(StageStore.CURRENT_VERSION, name(), List.of());
-        }
+        beginUse();
+        try {
+            if (Thread.interrupted()) {
+                throw new InterruptedException("화자 구분 취소");
+            }
+            if (samples.length < MIN_SAMPLES) {
+                notifyProgress(progress, 1.0);
+                if (Thread.interrupted()) {
+                    throw new InterruptedException("화자 구분 취소");
+                }
+                return new DiarResult(StageStore.CURRENT_VERSION, name(), List.of());
+            }
 
-        notifyProgress(progress, 0.0);
-        OfflineSpeakerDiarizationSegment[] raw = nativeDiarizer.processWithCallback(
-                samples,
-                (processed, total, unused) -> {
-                    if (total > 0) {
-                        try {
-                            notifyProgress(progress, (double) processed / total);
-                        } catch (RuntimeException ignored) {
-                            // JNI 콜백 안에서 예외가 전파되지 않게 막는다.
+            notifyProgress(progress, 0.0);
+            OfflineSpeakerDiarizationSegment[] raw = nativeDiarizer.processWithCallback(
+                    samples,
+                    (processed, total, unused) -> {
+                        if (total > 0) {
+                            try {
+                                notifyProgress(progress, (double) processed / total);
+                            } catch (RuntimeException ignored) {
+                                // JNI 콜백 안에서 예외가 전파되지 않게 막는다.
+                            }
                         }
-                    }
-                    return 0;
-                });
-        if (Thread.interrupted()) {
-            throw new InterruptedException("화자 구분 취소");
-        }
+                        return 0;
+                    });
+            if (Thread.interrupted()) {
+                throw new InterruptedException("화자 구분 취소");
+            }
 
-        List<Turn> turns = toTurns(raw);
-        notifyProgress(progress, 1.0);
-        return new DiarResult(StageStore.CURRENT_VERSION, name(), turns);
+            List<Turn> turns = toTurns(raw);
+            notifyProgress(progress, 1.0);
+            if (Thread.interrupted()) {
+                throw new InterruptedException("화자 구분 취소");
+            }
+            return new DiarResult(StageStore.CURRENT_VERSION, name(), turns);
+        } finally {
+            endUse();
+        }
     }
 
     static List<Turn> toTurns(OfflineSpeakerDiarizationSegment[] raw) {
@@ -215,9 +228,37 @@ public final class SherpaDiarizer implements Diarizer {
         return List.copyOf(turns);
     }
 
-    private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("이미 닫힌 화자 구분기입니다");
+    private void ensureNotClosed() {
+        synchronized (stateLock) {
+            if (closeRequested || released) {
+                throw new IllegalStateException("이미 닫힌 화자 구분기입니다");
+            }
+        }
+    }
+
+    private void beginUse() {
+        synchronized (stateLock) {
+            if (closeRequested || released) {
+                throw new IllegalStateException("이미 닫힌 화자 구분기입니다");
+            }
+            if (inUse) {
+                throw new IllegalStateException("화자 구분기는 동시에 한 호출만 실행할 수 있습니다");
+            }
+            inUse = true;
+        }
+    }
+
+    private void endUse() {
+        boolean shouldRelease = false;
+        synchronized (stateLock) {
+            inUse = false;
+            if (closeRequested && !released) {
+                released = true;
+                shouldRelease = true;
+            }
+        }
+        if (shouldRelease) {
+            nativeDiarizer.release();
         }
     }
 
@@ -229,8 +270,16 @@ public final class SherpaDiarizer implements Diarizer {
 
     @Override
     public void close() {
-        if (!closed) {
-            closed = true;
+        boolean shouldRelease = false;
+        synchronized (stateLock) {
+            closeRequested = true;
+            // 네이티브 Process() 실행 중 close()가 불려도 호출이 끝난 뒤 해제해 use-after-free를 막는다.
+            if (!inUse && !released) {
+                released = true;
+                shouldRelease = true;
+            }
+        }
+        if (shouldRelease) {
             nativeDiarizer.release();
         }
     }

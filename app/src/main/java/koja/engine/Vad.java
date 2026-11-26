@@ -21,6 +21,7 @@ import koja.runtime.ModelStore.ProgressListener;
  */
 public final class Vad implements Engine {
     public static final int SAMPLE_RATE = WavAudio.SAMPLE_RATE;
+    public static final int SILERO_WINDOW_SIZE = 512;
     private static final int INTERRUPT_CHECK_WINDOWS = 32;
     private static final int SPLIT_HOP_SAMPLES = SAMPLE_RATE * 30 / 1000;
 
@@ -58,8 +59,9 @@ public final class Vad implements Engine {
             if (minSilenceDuration < 0.0f || minSpeechDuration < 0.0f || maxSpeechDuration <= 0.0f) {
                 throw new IllegalArgumentException("VAD 길이 설정이 잘못됐습니다");
             }
-            if (windowSize <= 0) {
-                throw new IllegalArgumentException("windowSize는 양수여야 합니다: " + windowSize);
+            if (windowSize != SILERO_WINDOW_SIZE) {
+                throw new IllegalArgumentException(
+                        "고정 Silero VAD 16kHz 모델은 windowSize=" + SILERO_WINDOW_SIZE + "만 지원합니다: " + windowSize);
             }
             if (maxSegmentSeconds < 0) {
                 throw new IllegalArgumentException("maxSegmentSeconds는 0 이상이어야 합니다: " + maxSegmentSeconds);
@@ -72,7 +74,10 @@ public final class Vad implements Engine {
 
     private final com.k2fsa.sherpa.onnx.Vad nativeVad;
     private final Config config;
-    private boolean closed;
+    private final Object stateLock = new Object();
+    private boolean inUse;
+    private boolean closeRequested;
+    private boolean released;
 
     private Vad(com.k2fsa.sherpa.onnx.Vad nativeVad, Config config) {
         this.nativeVad = nativeVad;
@@ -133,7 +138,7 @@ public final class Vad implements Engine {
 
     /** 16kHz 모노 16비트 PCM WAV 파일에서 발화 구간을 검출한다. */
     public List<Segment> detect(Path audio, DoubleConsumer progress) throws IOException, InterruptedException {
-        ensureOpen();
+        ensureNotClosed();
         float[] samples = WavAudio.readMono16k(audio);
         return detect(samples, progress);
     }
@@ -141,57 +146,75 @@ public final class Vad implements Engine {
     /** 16kHz 모노 float 샘플([-1.0, 1.0])에서 발화 구간을 검출한다. */
     public List<Segment> detect(float[] samples, DoubleConsumer progress) throws InterruptedException {
         Objects.requireNonNull(samples, "samples");
-        ensureOpen();
-        if (Thread.interrupted()) {
-            throw new InterruptedException("VAD 취소");
-        }
-        if (samples.length == 0) {
-            notifyProgress(progress, 1.0);
-            return List.of();
-        }
-
-        nativeVad.reset();
-        int win = config.windowSize();
-        float[] frame = new float[win];
-        List<int[]> rawRanges = new ArrayList<>();
-        int windows = 0;
-
-        for (int pos = 0; pos < samples.length; pos += win) {
-            if ((windows++ % INTERRUPT_CHECK_WINDOWS) == 0) {
+        beginUse();
+        try {
+            if (Thread.interrupted()) {
+                throw new InterruptedException("VAD 취소");
+            }
+            if (samples.length == 0) {
+                notifyProgress(progress, 1.0);
                 if (Thread.interrupted()) {
-                    nativeVad.reset();
                     throw new InterruptedException("VAD 취소");
                 }
-                notifyProgress(progress, (double) pos / samples.length);
+                return List.of();
             }
-            int len = Math.min(win, samples.length - pos);
-            System.arraycopy(samples, pos, frame, 0, len);
-            if (len < win) {
-                Arrays.fill(frame, len, win, 0.0f);
+
+            nativeVad.reset();
+            int win = config.windowSize();
+            float[] frame = new float[win];
+            List<int[]> rawRanges = new ArrayList<>();
+            int windows = 0;
+
+            for (int pos = 0; pos < samples.length; pos += win) {
+                if ((windows++ % INTERRUPT_CHECK_WINDOWS) == 0) {
+                    if (Thread.interrupted()) {
+                        nativeVad.reset();
+                        throw new InterruptedException("VAD 취소");
+                    }
+                    notifyProgress(progress, (double) pos / samples.length);
+                    if (Thread.interrupted()) {
+                        nativeVad.reset();
+                        throw new InterruptedException("VAD 취소");
+                    }
+                }
+                int len = Math.min(win, samples.length - pos);
+                System.arraycopy(samples, pos, frame, 0, len);
+                if (len < win) {
+                    Arrays.fill(frame, len, win, 0.0f);
+                }
+                nativeVad.acceptWaveform(frame);
+                drain(rawRanges, samples.length);
             }
-            nativeVad.acceptWaveform(frame);
+            if (Thread.interrupted()) {
+                nativeVad.reset();
+                throw new InterruptedException("VAD 취소");
+            }
+            nativeVad.flush();
             drain(rawRanges, samples.length);
-        }
-        nativeVad.flush();
-        drain(rawRanges, samples.length);
 
-        List<int[]> ranges = rawRanges;
-        if (config.maxSegmentSeconds() > 0) {
-            int maxSamples = Math.multiplyExact(config.maxSegmentSeconds(), SAMPLE_RATE);
-            ranges = new ArrayList<>();
-            for (int[] r : rawRanges) {
-                splitAtLowEnergy(samples, r[0], r[1], maxSamples, ranges);
+            List<int[]> ranges = rawRanges;
+            if (config.maxSegmentSeconds() > 0) {
+                int maxSamples = Math.multiplyExact(config.maxSegmentSeconds(), SAMPLE_RATE);
+                ranges = new ArrayList<>();
+                for (int[] r : rawRanges) {
+                    splitAtLowEnergy(samples, r[0], r[1], maxSamples, ranges);
+                }
             }
-        }
 
-        List<Segment> segments = new ArrayList<>(ranges.size());
-        for (int[] r : ranges) {
-            long startMs = r[0] * 1000L / SAMPLE_RATE;
-            long endMs = Math.max(startMs, r[1] * 1000L / SAMPLE_RATE);
-            segments.add(new Segment(startMs, endMs));
+            List<Segment> segments = new ArrayList<>(ranges.size());
+            for (int[] r : ranges) {
+                long startMs = r[0] * 1000L / SAMPLE_RATE;
+                long endMs = Math.max(startMs, r[1] * 1000L / SAMPLE_RATE);
+                segments.add(new Segment(startMs, endMs));
+            }
+            notifyProgress(progress, 1.0);
+            if (Thread.interrupted()) {
+                throw new InterruptedException("VAD 취소");
+            }
+            return List.copyOf(segments);
+        } finally {
+            endUse();
         }
-        notifyProgress(progress, 1.0);
-        return List.copyOf(segments);
     }
 
     private void drain(List<int[]> out, int totalSamples) {
@@ -246,9 +269,37 @@ public final class Vad implements Engine {
         splitAtLowEnergy(samples, bestCut, end, maxSamples, out);
     }
 
-    private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("이미 닫힌 VAD 엔진입니다");
+    private void ensureNotClosed() {
+        synchronized (stateLock) {
+            if (closeRequested || released) {
+                throw new IllegalStateException("이미 닫힌 VAD 엔진입니다");
+            }
+        }
+    }
+
+    private void beginUse() {
+        synchronized (stateLock) {
+            if (closeRequested || released) {
+                throw new IllegalStateException("이미 닫힌 VAD 엔진입니다");
+            }
+            if (inUse) {
+                throw new IllegalStateException("VAD 엔진은 동시에 한 호출만 실행할 수 있습니다");
+            }
+            inUse = true;
+        }
+    }
+
+    private void endUse() {
+        boolean shouldRelease = false;
+        synchronized (stateLock) {
+            inUse = false;
+            if (closeRequested && !released) {
+                released = true;
+                shouldRelease = true;
+            }
+        }
+        if (shouldRelease) {
+            nativeVad.release();
         }
     }
 
@@ -260,8 +311,15 @@ public final class Vad implements Engine {
 
     @Override
     public void close() {
-        if (!closed) {
-            closed = true;
+        boolean shouldRelease = false;
+        synchronized (stateLock) {
+            closeRequested = true;
+            if (!inUse && !released) {
+                released = true;
+                shouldRelease = true;
+            }
+        }
+        if (shouldRelease) {
             nativeVad.release();
         }
     }
