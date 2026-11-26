@@ -32,6 +32,7 @@ final class WavAudio {
         if (!Files.isRegularFile(wavFile)) {
             throw new IOException("오디오 파일이 없습니다: " + wavFile);
         }
+        long fileSize = Files.size(wavFile);
         try (InputStream raw = Files.newInputStream(wavFile);
              DataInputStream in = new DataInputStream(new BufferedInputStream(raw, READ_CHUNK_BYTES))) {
             String riff = readTag(in);
@@ -43,6 +44,7 @@ final class WavAudio {
             if (!"WAVE".equals(wave)) {
                 throw new IOException("WAV(WAVE) 헤더가 아닙니다: " + wavFile);
             }
+            long pos = 12L;
 
             boolean foundFmt = false;
             int audioFormat = 0;
@@ -59,6 +61,12 @@ final class WavAudio {
                     throw new IOException("WAV data 청크가 없습니다: " + wavFile);
                 }
                 long chunkSize = Integer.toUnsignedLong(readIntLE(in));
+                pos += 8L;
+                long remainingFileBytes = fileSize - pos;
+                if (chunkSize > remainingFileBytes) {
+                    throw new IOException("WAV " + chunkId + " 청크 크기(" + chunkSize
+                            + ")가 실제 파일 남은 크기(" + remainingFileBytes + ")를 넘습니다: " + wavFile);
+                }
                 if ("fmt ".equals(chunkId)) {
                     if (chunkSize < 16) {
                         throw new IOException("WAV fmt 청크가 손상됐습니다: " + wavFile);
@@ -76,7 +84,9 @@ final class WavAudio {
                         audioFormat = readUnsignedShortLE(in);
                         remain -= 10;
                     }
-                    skipFully(in, remain + (chunkSize & 1L));
+                    long pad = (chunkSize & 1L) != 0L && chunkSize < remainingFileBytes ? 1L : 0L;
+                    skipFully(in, remain + pad);
+                    pos += chunkSize + pad;
                     foundFmt = true;
                 } else if ("data".equals(chunkId)) {
                     if (!foundFmt) {
@@ -85,7 +95,9 @@ final class WavAudio {
                     validateFormat(wavFile, audioFormat, channels, sampleRate, bitsPerSample, chunkSize);
                     return readPcm16Samples(in, chunkSize, wavFile);
                 } else {
-                    skipFully(in, chunkSize + (chunkSize & 1L));
+                    long pad = (chunkSize & 1L) != 0L && chunkSize < remainingFileBytes ? 1L : 0L;
+                    skipFully(in, chunkSize + pad);
+                    pos += chunkSize + pad;
                 }
             }
         }

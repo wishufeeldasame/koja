@@ -8,7 +8,6 @@ import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationModelConfig;
 import com.k2fsa.sherpa.onnx.OfflineSpeakerSegmentationPyannoteModelConfig;
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,6 +26,8 @@ import koja.runtime.ModelStore.ProgressListener;
 /**
  * sherpa-onnx 기반 로컬 화자 구분기(pyannote segmentation-3.0 + 3D-Speaker CAM++, CPU, D-039·D-064).
  * STT 결과를 보지 않고 16kHz 모노 오디오만으로 {@link DiarResult}(diar.json, D-048)를 만든다.
+ * sherpa-onnx 2.0.3 네이티브 구현은 진행 콜백의 반환값으로 계산을 중단하지 않으므로,
+ * WAV 읽기 중 취소는 즉시 반영되고 네이티브 계산 중 들어온 취소는 계산 반환 직후 {@link InterruptedException}으로 처리된다(D-062 한계).
  */
 public final class SherpaDiarizer implements Diarizer {
     public static final int SAMPLE_RATE = WavAudio.SAMPLE_RATE;
@@ -91,9 +92,8 @@ public final class SherpaDiarizer implements Diarizer {
         Objects.requireNonNull(segmentationModel, "segmentationModel");
         Objects.requireNonNull(embeddingModel, "embeddingModel");
         Objects.requireNonNull(config, "config");
-        // sherpa-onnx C++는 모델 파일이 없으면 exit(-1)로 JVM을 종료하므로 사전에 검사한다.
-        requireModelFile(segmentationModel, "화자 분할(pyannote)");
-        requireModelFile(embeddingModel, "화자 임베딩(CAM++)");
+        SherpaModels.verifyModelFile(segmentationModel, SherpaModels.PYANNOTE_SEGMENTATION, "화자 분할(pyannote)");
+        SherpaModels.verifyModelFile(embeddingModel, SherpaModels.CAMPPLUS_EMBEDDING, "화자 임베딩(CAM++)");
 
         SherpaNative.configurePath();
         OfflineSpeakerSegmentationModelConfig segCfg = OfflineSpeakerSegmentationModelConfig.builder()
@@ -213,12 +213,6 @@ public final class SherpaDiarizer implements Diarizer {
         }
         turns.sort(Comparator.comparingLong(Turn::startMs).thenComparingLong(Turn::endMs));
         return List.copyOf(turns);
-    }
-
-    private static void requireModelFile(Path file, String label) throws IOException {
-        if (!Files.isRegularFile(file) || Files.size(file) == 0L) {
-            throw new IOException(label + " 모델 파일이 없거나 비어 있습니다: " + file);
-        }
     }
 
     private void ensureOpen() {

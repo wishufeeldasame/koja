@@ -122,8 +122,10 @@ val modularizeSherpaJvm = tasks.register("modularizeSherpaJvm") {
 
 // sherpa-onnx-native-lib-* 이름은 Java 키워드 'native'가 들어 있어 JPMS 모듈 경로에 올릴 수 없다.
 // 네이티브 동적 라이브러리만 꺼내 sherpa_onnx.native.path와 jpackage --app-content로 넘긴다(D-062).
+val sherpaLicensesDir = layout.projectDirectory.dir("licenses/sherpa-native")
 val extractSherpaNative = tasks.register("extractSherpaNative") {
     inputs.files(sherpaNative)
+    inputs.dir(sherpaLicensesDir)
     inputs.property("sherpaPlatform", sherpaPlatform)
     inputs.property("sherpaVersion", sherpaVersion)
     outputs.dir(sherpaNativeDir)
@@ -154,10 +156,23 @@ val extractSherpaNative = tasks.register("extractSherpaNative") {
         if (extracted < 2) {
             throw GradleException("sherpa-onnx 네이티브 라이브러리가 부족합니다(${extracted}개): ${nativeJar.name}")
         }
+        val licenseFiles = listOf(
+            "LICENSE-sherpa-onnx.txt",
+            "LICENSE-onnxruntime.txt",
+            "ThirdPartyNotices-onnxruntime.txt",
+        )
+        for (name in licenseFiles) {
+            val src = sherpaLicensesDir.file(name).asFile
+            if (!src.isFile) {
+                throw GradleException("sherpa-onnx 번들 라이선스 파일이 없습니다: $src")
+            }
+            src.copyTo(outDir.resolve(name), overwrite = true)
+        }
         outDir.resolve("NOTICE.txt").writeText(
             """
-            sherpa-onnx $sherpaVersion ($sherpaPlatform)
-            License: Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime)
+            sherpa-onnx $sherpaVersion ($sherpaPlatform) + ONNX Runtime 1.28.2
+            Licenses: Apache-2.0 (LICENSE-sherpa-onnx.txt), MIT (LICENSE-onnxruntime.txt)
+            Third-party notices: ThirdPartyNotices-onnxruntime.txt
             Source: https://github.com/k2-fsa/sherpa-onnx/releases/tag/v$sherpaVersion
             Archive SHA-256: $expectedSha
             """.trimIndent() + "\n",
@@ -264,8 +279,15 @@ tasks.register<Exec>("jpackage") {
             }
         }
         val jniLib = if (windows) "sherpa-onnx-jni.dll" else if (os.contains("mac")) "libsherpa-onnx-jni.dylib" else "libsherpa-onnx-jni.so"
-        if (!sherpaDir.resolve(jniLib).isFile || !sherpaDir.resolve("NOTICE.txt").isFile) {
-            throw GradleException("번들 sherpa-onnx 네이티브 라이브러리가 없다: $sherpaDir")
+        val requiredSherpaFiles = listOf(
+            jniLib,
+            "NOTICE.txt",
+            "LICENSE-sherpa-onnx.txt",
+            "LICENSE-onnxruntime.txt",
+            "ThirdPartyNotices-onnxruntime.txt",
+        )
+        if (requiredSherpaFiles.any { !sherpaDir.resolve(it).isFile }) {
+            throw GradleException("번들 sherpa-onnx 네이티브 라이브러리 또는 라이선스 파일이 없다: $sherpaDir")
         }
         delete(outDir)
         val home = jpackageLauncher.get().metadata.installationPath.asFile

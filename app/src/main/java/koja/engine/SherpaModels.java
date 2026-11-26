@@ -2,6 +2,7 @@ package koja.engine;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import koja.runtime.ModelStore;
@@ -65,5 +66,23 @@ public final class SherpaModels {
                 : (done, unused) -> listener.onProgress(segSize + Math.min(done, embSize), total);
         Path emb = store.ensureDownloaded(CAMPPLUS_EMBEDDING, embProgress, cancelToken);
         return new DiarModels(seg, emb);
+    }
+
+    /**
+     * JNI 생성자에 넘기기 전 모델 파일 존재·크기·SHA-256을 검증한다.
+     * sherpa-onnx C++는 손상됐거나 없는 ONNX 파일에서 exit(-1) 또는 미처리 예외로 JVM을 종료할 수 있다.
+     */
+    static void verifyModelFile(Path file, ModelSpec spec, String label) throws IOException {
+        if (!Files.isRegularFile(file)) {
+            throw new IOException(label + " 모델 파일이 없습니다: " + file);
+        }
+        long size = Files.size(file);
+        if (size == 0L || (spec.expectedSize() >= 0L && size != spec.expectedSize())) {
+            throw new IOException(label + " 모델 파일 크기가 예상(" + spec.expectedSize() + ")과 다릅니다(" + size + "): " + file);
+        }
+        String actualSha = ModelStore.sha256(file);
+        if (!actualSha.equals(spec.sha256())) {
+            throw new IOException(label + " 모델 체크섬이 일치하지 않습니다: " + file);
+        }
     }
 }

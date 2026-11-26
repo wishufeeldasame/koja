@@ -97,6 +97,28 @@ class WavAudioTest {
     }
 
     @Test
+    void rejectsDeclaredDataLargerThanFileWithoutOom() throws Exception {
+        Path wav = tmp.resolve("huge-header.wav");
+        ByteBuffer buf = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put("RIFF".getBytes(StandardCharsets.US_ASCII));
+        buf.putInt(36 + 1_000_000_000);
+        buf.put("WAVE".getBytes(StandardCharsets.US_ASCII));
+        buf.put("fmt ".getBytes(StandardCharsets.US_ASCII));
+        buf.putInt(16);
+        buf.putShort((short) 1);
+        buf.putShort((short) 1);
+        buf.putInt(16_000);
+        buf.putInt(32_000);
+        buf.putShort((short) 2);
+        buf.putShort((short) 16);
+        buf.put("data".getBytes(StandardCharsets.US_ASCII));
+        buf.putInt(1_000_000_000);
+        Files.write(wav, buf.array());
+
+        assertThrows(IOException.class, () -> WavAudio.readMono16k(wav));
+    }
+
+    @Test
     void respectsThreadInterrupt() throws Exception {
         Path wav = tmp.resolve("interrupt.wav");
         WavAudio.writeMonoPcm16(wav, new float[16_000], WavAudio.SAMPLE_RATE);

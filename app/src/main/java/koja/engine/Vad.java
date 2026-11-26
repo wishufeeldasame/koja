@@ -4,7 +4,6 @@ import com.k2fsa.sherpa.onnx.SileroVadModelConfig;
 import com.k2fsa.sherpa.onnx.SpeechSegment;
 import com.k2fsa.sherpa.onnx.VadModelConfig;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -87,10 +86,7 @@ public final class Vad implements Engine {
     public static Vad open(Path modelPath, Config config) throws IOException {
         Objects.requireNonNull(modelPath, "modelPath");
         Objects.requireNonNull(config, "config");
-        // sherpa-onnx C++는 모델 파일이 없으면 exit(-1)로 JVM을 종료하므로 사전에 검사한다.
-        if (!Files.isRegularFile(modelPath) || Files.size(modelPath) == 0L) {
-            throw new IOException("Silero VAD 모델 파일이 없거나 비어 있습니다: " + modelPath);
-        }
+        SherpaModels.verifyModelFile(modelPath, SherpaModels.SILERO_VAD, "Silero VAD");
         SherpaNative.configurePath();
         SileroVadModelConfig silero = SileroVadModelConfig.builder()
                 .setModel(modelPath.toAbsolutePath().toString())

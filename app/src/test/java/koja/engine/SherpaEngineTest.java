@@ -100,15 +100,19 @@ class SherpaEngineTest {
     }
 
     @Test
-    void rejectsMissingOrEmptyModelFilesWithoutCrashingJvm() throws Exception {
+    void rejectsMissingOrCorruptedModelFilesWithoutCrashingJvm() throws Exception {
         Path missing = tmp.resolve("missing.onnx");
         Path empty = tmp.resolve("empty.onnx");
+        Path corrupted = tmp.resolve("corrupted.onnx");
         Files.write(empty, new byte[0]);
+        Files.writeString(corrupted, "not a valid onnx model");
 
         assertThrows(IOException.class, () -> Vad.open(missing));
         assertThrows(IOException.class, () -> Vad.open(empty));
+        assertThrows(IOException.class, () -> Vad.open(corrupted));
         assertThrows(IOException.class, () -> SherpaDiarizer.open(missing, empty));
         assertThrows(IOException.class, () -> SherpaDiarizer.open(empty, missing));
+        assertThrows(IOException.class, () -> SherpaDiarizer.open(corrupted, corrupted));
     }
 
     @Test

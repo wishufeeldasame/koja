@@ -75,6 +75,9 @@ jobs:
           ls "$mnt/koja.app/Contents/whisper"
           test -f "$mnt/koja.app/Contents/sherpa-native/libsherpa-onnx-jni.dylib"
           test -f "$mnt/koja.app/Contents/sherpa-native/libonnxruntime.dylib"
+          test -f "$mnt/koja.app/Contents/sherpa-native/LICENSE-sherpa-onnx.txt"
+          test -f "$mnt/koja.app/Contents/sherpa-native/LICENSE-onnxruntime.txt"
+          test -f "$mnt/koja.app/Contents/sherpa-native/ThirdPartyNotices-onnxruntime.txt"
           ls "$mnt/koja.app/Contents/sherpa-native"
           hdiutil detach "$mnt"
 
@@ -101,8 +104,8 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $help = (& $whisper --help 2>&1 | Out-String)
           if ($help -notmatch '--inference-path') { throw "whisper-server --help 실패: $help" }
-          foreach ($dll in @('sherpa-onnx-jni.dll', 'onnxruntime.dll', 'NOTICE.txt')) {
-            $p = Join-Path $launcher.DirectoryName "sherpa-native\$dll"
+          foreach ($f in @('sherpa-onnx-jni.dll', 'onnxruntime.dll', 'NOTICE.txt', 'LICENSE-sherpa-onnx.txt', 'LICENSE-onnxruntime.txt', 'ThirdPartyNotices-onnxruntime.txt')) {
+            $p = Join-Path $launcher.DirectoryName "sherpa-native\$f"
             if (-not (Test-Path $p)) { throw "sherpa-native 파일 없음: $p" }
           }
 
