@@ -54,6 +54,12 @@ final class PipelineDialog {
             alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", e.getMessage());
             return;
         }
+        // audio.wav가 이 프로젝트의 가져오기 결과인지 본다. 다른 영상 가져오기가 남긴 폴더에 만든 더미 등은 거부한다.
+        Project.Stage imported = project.stages() == null ? null : project.stages().get("import");
+        if (imported == null || !imported.done()) {
+            alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", "가져오기로 만든 프로젝트가 아닙니다. 파일 → 가져오기로 영상을 가져오세요.");
+            return;
+        }
         // 저장한 검수 내용도 행을 새로 만들면 사라진다. 저장 안 한 편집 확인과 별개로 묻는다.
         if (!project.rows().isEmpty() && Pipeline.rebuildsRows(projectFile, project) && !confirm(owner, "행 다시 만들기",
                 "저장된 행 " + project.rows().size() + "개(검수한 내용 포함)를 STT 구간으로 새로 만듭니다. 계속할까요?")) {

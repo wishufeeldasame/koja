@@ -1,5 +1,8 @@
 package koja.engine;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 import koja.engine.whisper.WhisperTranscriber;
@@ -31,13 +34,29 @@ public final class LocalEngines {
     }
 
     public static Pipeline.Opener<Transcriber> transcriber(ModelStore store) {
-        return () -> WhisperTranscriber.start(store.pathOf(WhisperServer.MODEL), audio -> {
+        return () -> startWhisper(store, audio -> {
             // VAD는 CPU라 whisper-server(GPU)와 함께 열려 있어도 된다(절대 규칙 5는 GPU 단계 기준).
             try (Vad vad = Vad.open(store.pathOf(SherpaModels.SILERO_VAD))) {
                 return vad.detect(audio, f -> {}).stream()
                         .map(s -> new WhisperTranscriber.Span(s.startMs(), s.endMs())).toList();
             }
         });
+    }
+
+    /** 해시는 시작에 실패했을 때만 본다. 손상된 모델이면 지워 다음 실행이 다시 받게 한다(같은 실패 반복 방지). */
+    private static WhisperTranscriber startWhisper(ModelStore store, WhisperTranscriber.Vad vad) throws IOException {
+        Path model = store.pathOf(WhisperServer.MODEL);
+        try {
+            return WhisperTranscriber.start(model, vad);
+        } catch (IOException e) {
+            if (Files.isRegularFile(model) && !store.verify(WhisperServer.MODEL)) {
+                Files.delete(model);
+                IOException corrupt = new IOException("whisper 모델 파일이 손상돼 지웠습니다. 다시 실행하면 새로 받습니다: " + model);
+                corrupt.addSuppressed(e);
+                throw corrupt;
+            }
+            throw e;
+        }
     }
 
     public static Pipeline.Opener<Diarizer> diarizer(ModelStore store) {
