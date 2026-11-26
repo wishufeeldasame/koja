@@ -287,7 +287,11 @@ tasks.register<Exec>("jpackage") {
             for (dir in bundleDirs.keys.filter { it.name == "llama" || it.name == "whisper" }) {
                 val dup = sharedCudaDlls.firstOrNull { dir.resolve(it).isFile }
                 if (dup != null) {
-                    throw GradleException("공유 CUDA DLL이 ${dir.name} 폴더에 중복돼 있다: $dup. 먼저 scripts/bundle_${dir.name}.sh를 다시 실행한다")
+                    val dupFile = dir.resolve(dup)
+                    throw GradleException(
+                        "공유 CUDA DLL이 ${dir.name} 폴더에 중복돼 있다: ${dupFile.path}. " +
+                            "해당 파일을 삭제하거나 ${dir.path}를 지운 뒤 scripts/bundle_${dir.name}.sh를 다시 실행한다",
+                    )
                 }
             }
         }

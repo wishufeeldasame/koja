@@ -11,8 +11,11 @@ set -euo pipefail
 OUT="${1:-app/build/llama}"
 CUDA_OUT="${2:-app/build/cuda}"
 
-norm_path() { # 상대·`.`·`..`·끝 슬래시를 정규화한다(윈도우 드라이브 문자 포함).
+norm_path() { # 상대·`.`·`..`·끝 슬래시·윈도우 표기(/c vs C:)와 상위 심볼릭 링크를 실제 경로 기준으로 정규화한다.
   local p="$1"
+  if command -v cygpath > /dev/null 2>&1; then
+    p=$(cygpath -u "$p")
+  fi
   p="${p//\\//}"
   if [[ "$p" != /* && "$p" != [A-Za-z]:/* ]]; then
     p="$PWD/$p"
@@ -35,7 +38,32 @@ norm_path() { # 상대·`.`·`..`·끝 슬래시를 정규화한다(윈도우 �
     fi
   done
   local IFS='/'
-  printf '%s/%s' "$prefix" "${out[*]}"
+  local logical
+  logical=$(printf '%s/%s' "$prefix" "${out[*]}")
+
+  # 아직 없는 하위 경로라도 가장 가까운 기존 상위 폴더의 심볼릭 링크를 풀어 물리 경로로 맞춘다.
+  local cur="$logical"
+  local tail=""
+  while [ ! -d "$cur" ]; do
+    local parent="${cur%/*}"
+    local base="${cur##*/}"
+    [ "$parent" != "$cur" ] || break
+    cur="${parent:-/}"
+    tail="${tail:+$base/$tail}"
+    [ -n "$tail" ] || tail="$base"
+  done
+  if [ -d "$cur" ]; then
+    local real_dir
+    real_dir=$(cd "$cur" && pwd -P)
+    real_dir="${real_dir%/}"
+    if [ -n "$tail" ]; then
+      printf '%s/%s' "$real_dir" "$tail"
+    else
+      printf '%s' "${real_dir:-/}"
+    fi
+  else
+    printf '%s' "$logical"
+  fi
 }
 
 LLAMA_TAG=b12655
@@ -59,8 +87,13 @@ WIN_CUDART_SHA256=8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1
 LICENSE_URL="https://raw.githubusercontent.com/ggml-org/llama.cpp/$LLAMA_COMMIT/LICENSE"
 LICENSE_SHA256=94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d
 
-# bundle_whisper.sh와 같은 NVIDIA CUDA 12.4 EULA 전문(부록 A 재배포·부록 B cuBLAS 제3자 고지 포함, D-060).
+# bundle_whisper.sh와 같은 NVIDIA CUDA 12.4 런타임 DLL·EULA 전문(부록 A 재배포·부록 B cuBLAS 제3자 고지 포함, D-060).
 CUDA_FILES=(cudart64_12.dll cublas64_12.dll cublasLt64_12.dll)
+CUDA_SHA256S=(
+  d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc
+  e40202fe4223c1cd2d2dce7beec59e1ed61c7801bd827309183be9b50e358f4c
+  2a896460bef60ed57ef32b0875812f355a6984e671d638bb632f5e8c1d7a831f
+)
 CUDA_LICENSE_URL=https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/LICENSE.txt
 CUDA_LICENSE_SHA256=e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07
 
@@ -142,14 +175,17 @@ check_ours_cuda() { # dir
   fi
 }
 
-# bundle_whisper.sh 또는 이전 단독 실행이 이미 유효한 공유 cuda/를 만들어 두었는지 확인한다.
+# bundle_whisper.sh 또는 이전 단독 실행이 이미 무결한 공유 cuda/를 만들어 두었는지 SHA-256까지 확인한다.
 cuda_ready() { # dir
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
   [ -f "$1/LICENSE.txt" ] || return 1
+  [ "$(sha256 "$1/LICENSE.txt")" = "$CUDA_LICENSE_SHA256" ] || return 1
   [[ "$(head -1 "$1/NOTICE.txt" 2> /dev/null || true)" == "NVIDIA CUDA "* ]] || return 1
-  local f
-  for f in "${CUDA_FILES[@]}"; do
+  local i f
+  for i in "${!CUDA_FILES[@]}"; do
+    f="${CUDA_FILES[$i]}"
     [ -f "$1/$f" ] || return 1
+    [ "$(sha256 "$1/$f")" = "${CUDA_SHA256S[$i]}" ] || return 1
   done
   return 0
 }
@@ -181,6 +217,14 @@ cuda_stage="$CUDA_OUT"
 need_llama=true
 if [ -f "$OUT/$exe" ] && [ -f "$OUT/LICENSE" ] && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null)" = "$notice" ]; then
   need_llama=false
+  if [ "$os" = win ]; then
+    for f in "${CUDA_FILES[@]}"; do
+      if [ -f "$OUT/$f" ]; then
+        need_llama=true
+        break
+      fi
+    done
+  fi
 fi
 need_cuda=false
 if [ "$os" = win ] && ! cuda_ready "$CUDA_OUT"; then
@@ -274,9 +318,7 @@ else
   for f in "${CUDA_FILES[@]}"; do
     [ ! -f "$stage/$f" ] || { echo "CUDA 런타임 DLL이 llama 폴더에 중복됨: $f" >&2; exit 1; }
   done
-  for f in "${CUDA_FILES[@]}" LICENSE.txt NOTICE.txt; do
-    [ -f "$cuda_stage/$f" ] || { echo "공유 CUDA 파일 없음: cuda/$f" >&2; exit 1; }
-  done
+  cuda_ready "$cuda_stage" || { echo "공유 CUDA 폴더 검증 실패(파일 누락 또는 SHA-256 불일치): $cuda_stage" >&2; exit 1; }
   cuda_abs=$(cd "$cuda_stage" && pwd)
   ver=$(PATH="$cuda_abs:$PATH" "$bin" --version 2>&1)
   grep -q "build $LLAMA_BUILD" <<< "$ver" || { echo "버전 불일치: $ver" >&2; exit 1; }
