@@ -50,7 +50,7 @@ class PipelineTest {
     class FakeDiar implements Diarizer {
         FakeDiar() { log.add("open diar"); }
         public String name() { return "fake-diar"; }
-        public DiarResult diarize(Path audio, DoubleConsumer progress) { return DIAR; }
+        public DiarResult diarize(Path audio, DoubleConsumer progress) throws IOException { return DIAR; }
         public void close() { log.add("close diar"); }
     }
 
@@ -217,6 +217,93 @@ class PipelineTest {
         assertTrue(saved.stages().get(Pipeline.STT).done());
         assertFalse(saved.stages().containsKey(Pipeline.DIAR));
         assertEquals(List.of(new Speaker("S1", "선수A", true)), saved.speakers());
+    }
+
+    @Test
+    void buildsOneRowPerSegmentAndMarksUnknownSpeakers() throws Exception {
+        Path file = newProject(List.of());
+
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of(List.of(1), List.of(2), List.of(3)), p.rows().stream().map(Project.Row::segIds).toList());
+        assertEquals(List.of(0L, 1_000L, 9_000L), p.rows().stream().map(Project.Row::startMs).toList());
+        assertEquals(List.of("가", "나", "다"), p.rows().stream().map(Project.Row::ko).toList());
+        assertEquals(java.util.Arrays.asList("S1", "S2", null), p.rows().stream().map(Project.Row::speakerId).toList());
+        // 화자 구분 직후 화자는 모두 미확인이다.
+        assertTrue(p.rows().stream().allMatch(r -> r.flags().equals(List.of(Project.Flag.SPEAKER_UNSURE))));
+        assertEquals(List.of(), p.ignoredSegIds());
+        assertTrue(p.stages().get(Pipeline.ROWS).done());
+    }
+
+    @Test
+    void keepsEditedRowsWhenNothingReran() throws Exception {
+        Path file = newProject(List.of());
+        Project first = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Project.Row r = first.rows().getFirst();
+        List<Project.Row> edited = new ArrayList<>(first.rows());
+        edited.set(0, new Project.Row(r.id(), r.kind(), r.startMs(), r.speakerId(), "고친 말", "直した", r.segIds(), List.of()));
+        ProjectStore.save(withRows(first, edited), file);
+
+        Project p = Pipeline.run(file, () -> { throw new AssertionError("STT"); },
+                () -> { throw new AssertionError("화자 구분"); }, (s, f) -> {});
+
+        assertEquals(edited, p.rows());
+    }
+
+    /** 새 STT를 저장한 뒤 멈추면 옛 행이 새 구간 id와 어긋난다. 다음 실행이 STT는 건너뛰고 행은 다시 만들어야 한다. */
+    @Test
+    void cancelAfterNewSttForcesRowRebuildOnResume() throws Exception {
+        Path file = newProject(List.of());
+        Project first = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        ProjectStore.save(withRows(first, List.of()), file);
+        Files.delete(file.resolveSibling(ProjectFiles.STT));
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+        Pipeline.Opener<Diarizer> interrupting = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) {
+                Thread.currentThread().interrupt();
+                return DIAR;
+            }
+        };
+
+        assertThrows(InterruptedException.class, () -> Pipeline.run(file, FakeStt::new, interrupting, (s, f) -> {}));
+        assertFalse(ProjectStore.load(file).stages().containsKey(Pipeline.ROWS));
+        log.clear();
+
+        Project p = Pipeline.run(file, () -> { throw new AssertionError("STT를 다시 돌리면 안 된다"); },
+                FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of("open diar", "close diar"), log);
+        assertEquals(3, p.rows().size());
+        assertTrue(p.stages().get(Pipeline.ROWS).done());
+    }
+
+    /** 화자 구분이 실패해도 STT 결과는 남고, 다시 돌리면 STT를 건너뛴다. */
+    @Test
+    void failedDiarizationKeepsSttForResume() throws Exception {
+        Path file = newProject(List.of());
+        Pipeline.Opener<Diarizer> failing = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) throws IOException {
+                throw new IOException("실패");
+            }
+        };
+
+        assertThrows(IOException.class, () -> Pipeline.run(file, FakeStt::new, failing, (s, f) -> {}));
+        assertEquals(List.of("open stt", "close stt", "open diar", "close diar"), log);
+        assertEquals(STT, StageStore.loadStt(file.resolveSibling(ProjectFiles.STT)));
+        log.clear();
+
+        Project p = Pipeline.run(file, () -> { throw new AssertionError("STT를 다시 돌리면 안 된다"); },
+                FakeDiar::new, (s, f) -> {});
+
+        assertEquals(List.of("open diar", "close diar"), log);
+        assertEquals(3, p.rows().size());
+    }
+
+    static Project withRows(Project p, List<Project.Row> rows) {
+        return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), rows,
+                p.ignoredSegIds(), p.glossary(), p.stages());
     }
 
     static Project withSpeakers(Project p, List<Speaker> speakers) {

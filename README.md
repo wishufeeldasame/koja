@@ -6,7 +6,7 @@
 
 사람이 영상을 처음부터 끝까지 보며 받아 적던 초기 작업을 줄이는 **초벌 기록** 도구다. 발언을 빠짐없이 기록하는 것이 먼저이고, 무엇을 쓸지 고르고 다듬는 일은 편집자가 앱에서 한다.
 
-> **상태: M1(앱 뼈대) 진행 중.** 영상을 가져와 검수용 프록시와 STT용 오디오를 만들고, 검수 화면을 더미 데이터로 띄울 수 있다. 실제 전사·번역은 아직 없다. 진행 상황은 [로드맵](#로드맵)을 본다.
+> **상태: M2(로컬 STT·화자 구분) 완료.** 영상을 가져오면 로컬에서 음성 인식·화자 구분을 돌려 구간 1개 = 행 1개로 검수 화면에 띄운다. 구조화·번역은 아직 없다. 진행 상황은 [로드맵](#로드맵)을 본다.
 
 ## 하는 일
 
@@ -64,6 +64,8 @@ JavaFX 앱
 
 설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `scripts/bundle_ffmpeg.sh`로 LGPL ffmpeg를, `scripts/bundle_whisper.sh`로 whisper-server를, `scripts/bundle_llama.sh`로 llama-server를 준비한 뒤 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 설치파일에는 LGPL ffmpeg, whisper.cpp `whisper-server`, llama.cpp `llama-server`(맥 macOS 13.3 이상 Metal / 윈도우 CUDA 12.4, 윈도우는 공유 `cuda/` NVIDIA CUDA 런타임 DLL 포함), `sherpa-onnx` 네이티브와 각각의 고지 파일이 들어 있다. 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
 
+가져오기가 끝나면 바로 전사·화자 구분을 돌린다. 처음 한 번은 로컬 모델 4개(약 1.7GB, whisper large-v3-turbo·Silero VAD·pyannote 분할·CAM++)를 받을지 묻고 데이터 폴더(맥 `~/Library/Application Support/koja/models`, 윈도우 `%LOCALAPPDATA%\koja\models`)에 받는다. 취소하거나 실패하면 **처리 → 전사·화자 구분 실행**(Ctrl/Cmd+R)으로 끝난 단계 다음부터 이어 한다. 개발 중 whisper-server는 `KOJA_WHISPER_SERVER` 또는 `PATH`에서 찾는다.
+
 가져오기에는 ffmpeg가 필요하다. 개발 중에는 `PATH`의 `ffmpeg`를 쓰고, 다른 것을 쓰려면 환경 변수 `KOJA_FFMPEG`에 경로를 준다. 설치판에는 LGPL 빌드를 넣을 예정이다(D-037).
 
 JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온다(인터넷 연결 필요). 나머지 명령은 [AGENTS.md](AGENTS.md#빌드실행테스트).
@@ -80,7 +82,7 @@ JDK 17 이상이 있으면 된다. JDK 25는 첫 빌드 때 Gradle이 받아 온
 |---|---|---|
 | M0 | 로컬 STT·화자 구분·번역 모델 비교 PoC | 완료. STT·화자 구분 결정(D-039), 번역 기본 Gemma 4 E4B(D-044), 윈도우 3060 Ti·3080 실측 |
 | M1 | 앱 뼈대: 가져오기, 검수 화면, 프로젝트 저장, 설치파일 CI | 진행 중 |
-| M2 | 로컬 STT·화자 구분 연결 | 예정 |
+| M2 | 로컬 STT·화자 구분 연결 | 완료. 가져오기 → VAD·2회 방식 STT → 화자 구분 → 구간 1개 = 행 1개(D-071), 진행·취소·모델 첫 다운로드 안내(D-072) |
 | M3 | llama-server 관리, 구조화·번역 | 예정 |
 | M4 | 화면 속 이름 자막으로 화자 이름 채우기 | 예정 |
 | M5 | Google 시트 내보내기 | 예정 (참고 이미지 필요) |

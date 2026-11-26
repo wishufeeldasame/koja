@@ -17,18 +17,23 @@ import koja.core.Project.Speaker;
 import koja.core.Project.SttSegment;
 import koja.core.ProjectFiles;
 import koja.core.ProjectStore;
+import koja.core.SegmentRows;
 import koja.core.StageStore;
 import koja.core.StageStore.DiarResult;
 import koja.core.StageStore.SttResult;
 import koja.core.StageStore.Turn;
 
 /**
- * 단계를 순서대로 하나씩 돌린다: STT → stt.json, 화자 구분 → diar.json, 그 뒤 화자를 구간에 붙여 project.json에 저장.
- * stages.<단계>.done이고 결과 파일이 있으면 그 단계는 건너뛴다(중간에 멈춘 뒤 다시 돌리기). 행 만들기는 아직 없다(M2 W2-4).
+ * 단계를 순서대로 하나씩 돌린다: STT → stt.json, 화자 구분 → diar.json, 그 뒤 화자를 구간에 붙이고 행을 만들어 project.json에 저장.
+ * stages.<단계>.done이고 결과 파일이 있으면 그 단계는 건너뛴다(중간에 멈춘 뒤 다시 돌리기).
+ * 행은 STT나 화자 구분을 새로 돌렸거나 stages.rows가 없을 때만 다시 만든다. 그 밖에는 사람이 고친 행을 그대로 둔다.
  */
 public final class Pipeline {
     public static final String STT = "stt";
     public static final String DIAR = "diar";
+    public static final String ROWS = "rows";
+    /** M2 행 만들기(구간 1개 = 행 1개, D-071). M3 구조화가 이 단계를 대신한다. */
+    static final String ROWS_ENGINE = "segment-1to1";
 
     /** 엔진은 단계 직전에 연다. 서버를 띄우는 데 실패할 수 있어 IOException을 던진다. */
     @FunctionalInterface
@@ -86,7 +91,8 @@ public final class Pipeline {
             }
             checkInterrupt();
             StageStore.saveStt(sttResult, sttFile);
-            project = withStage(project, STT, sttResult.engine());
+            // 옛 행은 옛 구간 id를 가리킨다. 이 저장 뒤에 멈춰도 다음 실행이 행을 다시 만들도록 rows 완료 표시를 같이 지운다.
+            project = withStage(withoutStage(project, ROWS), STT, sttResult.engine());
             ProjectStore.save(project, projectFile);
         }
 
@@ -107,6 +113,9 @@ public final class Pipeline {
 
         checkInterrupt();
         project = withSpeakers(project, sttResult, diarResult, newDiar);
+        if (newDiar || !done(project, ROWS, projectFile)) {
+            project = withRows(withStage(project, ROWS, ROWS_ENGINE));
+        }
         ProjectStore.save(project, projectFile);
         return project;
     }
@@ -136,6 +145,19 @@ public final class Pipeline {
 
     private static DoubleConsumer progress(Listener listener, String stage) {
         return f -> listener.progress(stage, f);
+    }
+
+    private static Project withoutStage(Project p, String stage) {
+        Map<String, Project.Stage> stages = new LinkedHashMap<>(p.stages() == null ? Map.of() : p.stages());
+        stages.remove(stage);
+        return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), p.rows(),
+                p.ignoredSegIds(), p.glossary(), Map.copyOf(stages));
+    }
+
+    /** 모든 구간을 행으로 쓰므로 무시 목록은 비운다(절대 규칙 1: 구간마다 행 또는 무시 목록에 한 번씩). */
+    private static Project withRows(Project p) {
+        return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(),
+                SegmentRows.build(p.sttSegments(), p.speakers()), List.of(), p.glossary(), p.stages());
     }
 
     private static Project withStage(Project p, String stage, String engine) {

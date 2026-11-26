@@ -40,7 +40,10 @@ public final class KojaApp extends Application {
         MenuItem save = new MenuItem("저장");
         save.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
         save.setOnAction(e -> save());
-        MenuBar menus = new MenuBar(new Menu("파일", null, importItem, open, dummy, save));
+        MenuItem process = new MenuItem("전사·화자 구분 실행");
+        process.setAccelerator(KeyCombination.keyCombination("Shortcut+R"));
+        process.setOnAction(e -> processOpen());
+        MenuBar menus = new MenuBar(new Menu("파일", null, importItem, open, dummy, save), new Menu("처리", null, process));
 
         stage.setTitle("koja");
         stage.setScene(new Scene(new BorderPane(review, menus, null, null, null), 1280, 720));
@@ -144,7 +147,25 @@ public final class KojaApp extends Application {
                 alert.showAndWait();
             }
             show(project, file);
+            process(file);
         }, e -> error("가져오기에 실패했습니다", e instanceof Exception ex ? ex : new IOException(e)));
+    }
+
+    /** 열린 프로젝트를 다시 처리한다. 끝난 단계는 건너뛰므로 취소·실패 뒤 이어 하기도 이것이다. */
+    private void processOpen() {
+        if (review.file() == null) {
+            error("실행할 수 없습니다", new IOException("먼저 프로젝트를 가져오거나 여세요."));
+            return;
+        }
+        // 파이프라인은 디스크의 project.json을 읽어 고친다. 저장 안 한 편집은 덮인다.
+        if (!confirmDiscard()) {
+            return;
+        }
+        process(review.file());
+    }
+
+    private void process(Path file) {
+        PipelineDialog.run(stage, file, project -> show(project, file));
     }
 
     private void createDummy() {
