@@ -307,13 +307,12 @@ llama_files_ok() { # dir
       mtmd.dll \
       ggml.dll \
       ggml-base.dll \
+      ggml-cpu-x64.dll \
       ggml-cuda.dll \
       libomp.dll \
       LICENSE-LLVM-OpenMP; do
       [ -f "$1/$req" ] || return 1
     done
-    local cpu_dlls=("$1"/ggml-cpu-*.dll)
-    [ -f "${cpu_dlls[0]}" ] || return 1
   fi
   return 0
 }

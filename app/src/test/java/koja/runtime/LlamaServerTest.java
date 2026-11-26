@@ -81,7 +81,31 @@ class LlamaServerTest {
     }
 
     @Test
-    void skipsCudaPathOnMacWithoutCudaDirOrForBareCommandName(@TempDir Path dir) throws IOException {
+    void prependsSiblingCudaDirForBareCommandFoundOnWindowsPath(@TempDir Path dir) throws IOException {
+        Path root = dir.resolve("앱 폴더").resolve("koja");
+        Path llamaDir = root.resolve("llama");
+        touch(llamaDir.resolve("llama-server.exe"));
+        Path cuda = Files.createDirectories(root.resolve("cuda"));
+
+        String quotedPath = "\"" + llamaDir + "\";C:\\Windows";
+        assertEquals(
+                Map.of("Path", cuda + ";" + quotedPath),
+                LlamaServer.processEnvironment("llama-server.exe", "Windows 11", Map.of("Path", quotedPath)));
+        assertEquals(
+                Map.of("Path", cuda + ";" + llamaDir),
+                LlamaServer.processEnvironment("llama-server", "Windows 11", Map.of("Path", llamaDir.toString())));
+
+        // PATH 앞쪽에 형제 cuda/가 없는 llama-server.exe가 먼저 잡히면 뒤쪽 번들의 cuda/를 붙이지 않는다.
+        Path systemLlamaDir = dir.resolve("system-llama");
+        touch(systemLlamaDir.resolve("llama-server.exe"));
+        String shadowedPath = systemLlamaDir + ";" + llamaDir;
+        assertEquals(
+                Map.of(),
+                LlamaServer.processEnvironment("llama-server.exe", "Windows 11", Map.of("Path", shadowedPath)));
+    }
+
+    @Test
+    void skipsCudaPathOnMacWithoutCudaDirOrWhenNotFoundOnPath(@TempDir Path dir) throws IOException {
         Path root = dir.resolve("koja");
         Path exe = touch(root.resolve("llama").resolve("llama-server.exe"));
 

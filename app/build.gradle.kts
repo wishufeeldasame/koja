@@ -292,6 +292,7 @@ tasks.register<Exec>("jpackage") {
                 "mtmd.dll",
                 "ggml.dll",
                 "ggml-base.dll",
+                "ggml-cpu-x64.dll",
                 "ggml-cuda.dll",
                 "libomp.dll",
                 "LICENSE",
@@ -314,12 +315,8 @@ tasks.register<Exec>("jpackage") {
             )
         }
         val missingLlama = requiredLlamaFiles.filterNot { llamaDir.resolve(it).isFile }
-        val hasWinCpuBackend = !windows || (llamaDir.listFiles()?.any {
-            it.isFile && it.name.startsWith("ggml-cpu-") && it.name.endsWith(".dll")
-        } == true)
-        if (missingLlama.isNotEmpty() || !hasWinCpuBackend) {
-            val missingDesc = if (hasWinCpuBackend) missingLlama.joinToString(", ") else (missingLlama + "ggml-cpu-*.dll").joinToString(", ")
-            throw GradleException("번들 llama 필수 파일이 빠졌다($missingDesc): $llamaDir. scripts/bundle_llama.sh를 다시 실행한다")
+        if (missingLlama.isNotEmpty()) {
+            throw GradleException("번들 llama 필수 파일이 빠졌다(${missingLlama.joinToString(", ")}): $llamaDir. scripts/bundle_llama.sh를 다시 실행한다")
         }
         if (windows) {
             val sharedCudaDlls = listOf("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll")

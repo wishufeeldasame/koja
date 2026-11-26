@@ -1,8 +1,10 @@
 package koja.runtime;
 
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -93,11 +95,10 @@ public final class LlamaServer {
         if (!AppPaths.isWindows(osName) || executable == null || executable.isBlank()) {
             return Map.of();
         }
-        Path exePath = Path.of(executable.trim());
-        if (exePath.getParent() == null) {
-            return Map.of();
-        }
-        Path parent = exePath.toAbsolutePath().normalize().getParent();
+        Map<String, String> parentEnv = env == null ? Map.of() : env;
+        String key = parentEnv.keySet().stream().filter(k -> k.equalsIgnoreCase("PATH")).findFirst().orElse("PATH");
+        String path = parentEnv.get(key);
+        Path parent = resolveExecutableParent(executable.trim(), path);
         if (parent == null) {
             return Map.of();
         }
@@ -105,11 +106,43 @@ public final class LlamaServer {
         if (!Files.isDirectory(cuda)) {
             return Map.of();
         }
-        Map<String, String> parentEnv = env == null ? Map.of() : env;
-        String key = parentEnv.keySet().stream().filter(k -> k.equalsIgnoreCase("PATH")).findFirst().orElse("PATH");
-        String path = parentEnv.get(key);
         // 윈도우 PATH 구분자는 항상 ';'다(맥 단위 테스트에서도 실제 윈도우 값을 검증한다).
         String value = path == null || path.isBlank() ? cuda.toString() : cuda + ";" + path;
         return Map.of(key, value);
+    }
+
+    private static Path resolveExecutableParent(String executable, String windowsPath) {
+        Path exePath = Path.of(executable);
+        if (exePath.getParent() != null) {
+            return exePath.toAbsolutePath().normalize().getParent();
+        }
+        if (windowsPath == null || windowsPath.isBlank()) {
+            return null;
+        }
+        List<String> candidates = executable.toLowerCase(Locale.ROOT).endsWith(".exe")
+                ? List.of(executable)
+                : List.of(executable, executable + ".exe");
+        for (String entry : windowsPath.split(";")) {
+            String dirText = entry.trim();
+            if (dirText.length() >= 2 && dirText.startsWith("\"") && dirText.endsWith("\"")) {
+                dirText = dirText.substring(1, dirText.length() - 1).trim();
+            }
+            if (dirText.isEmpty()) {
+                continue;
+            }
+            Path dir;
+            try {
+                dir = Path.of(dirText);
+            } catch (InvalidPathException ignored) {
+                continue;
+            }
+            for (String candidate : candidates) {
+                Path file = dir.resolve(candidate);
+                if (Files.isRegularFile(file)) {
+                    return file.toAbsolutePath().normalize().getParent();
+                }
+            }
+        }
+        return null;
     }
 }
