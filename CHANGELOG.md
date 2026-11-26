@@ -29,6 +29,8 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 단계 결과 파일 `stt.json`·`diar.json` 읽기·쓰기와 검사(`koja.core.StageStore`, D-048). `project.json`에 `ignoredSegIds`, STT 구간 단어 시간 `words`·한국어 후보 `ko` 선택 항목 추가. 옛 파일은 그대로 읽는다(D-048)
 - `koja.runtime` 공통 인프라: OS별 데이터·모델 경로(`AppPaths`), Hugging Face 모델 다운로드·Range 이어 받기·취소·SHA-256 검증·원자적 이동(`ModelStore`, D-050), `whisper-server`/`llama-server` 공용 로컬 HTTP 서버 수명주기(`LocalServer`: 동적 포트·프록시 우회·헬스체크·프로세스 트리 정리, D-051)와 단위 테스트
 - 구글 로그인(`koja.export.GoogleAuth`): OAuth Desktop 루프백(127.0.0.1) + PKCE, 스코프 `drive.file`, 클라이언트는 환경 변수(D-058). 리프레시 토큰은 `koja.runtime.SecretStore`(맥 Keychain / 윈도우 DPAPI, D-056)에 저장. `drive.file` 폴더 확인용 `./gradlew oauthPoc`. 실측 결과 사용자가 고른 기존 폴더(내 드라이브)에도 시트 생성 가능(D-057)
+- `prompt-engineer` 프로젝트 에이전트 추가(`.agents/agents/prompt-engineer.md`, D-015) 및 도구별 동기화 생성물, `AGENTS.md` 에이전트 표 갱신
+- M3 구조화 스펙 확정 및 재측정(`poc/structure.py`, `poc/struct_eval.py`, `poc/README.md`, 설계 4·7.3·9장): 1단계 영상 유형·화자 역할 분석 + 2단계 구간 1:1 평탄 고정 순서 JSON 스키마·과병합 방지·기본 플래그 보강(D-053), 1차 언어 인식 문장·화자·한국어 절 분할(`clause`) 및 기본 VAD 유지(D-054), 최대 24구간·3분·앞뒤 6구간(30초)·8K 컨텍스트(D-055). Gemma 4 E4B 검증 1회 통과 100%(42/42·51/51), 대체 청크 0 달성
 
 ### 변경
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙
