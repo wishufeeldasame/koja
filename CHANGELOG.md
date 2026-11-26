@@ -31,6 +31,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 구글 로그인(`koja.export.GoogleAuth`): OAuth Desktop 루프백(127.0.0.1) + PKCE, 스코프 `drive.file`, 클라이언트는 환경 변수(D-058). 리프레시 토큰은 `koja.runtime.SecretStore`(맥 Keychain / 윈도우 DPAPI, D-056)에 저장. `drive.file` 폴더 확인용 `./gradlew oauthPoc`. 실측 결과 사용자가 고른 기존 폴더(내 드라이브)에도 시트 생성 가능(D-057)
 - `prompt-engineer` 프로젝트 에이전트 추가(`.agents/agents/prompt-engineer.md`, D-015) 및 도구별 동기화 생성물, `AGENTS.md` 에이전트 표 갱신
 - M3 구조화 스펙 확정 및 재측정(`poc/structure.py`, `poc/struct_eval.py`, `poc/README.md`, 설계 4·7.3·9장): 1단계 영상 유형·화자 역할 분석 + 2단계 구간 1:1 평탄 고정 순서 JSON 스키마·과병합 방지·기본 플래그 보강(D-053), 1차 언어 인식 문장·화자·한국어 절 분할(`clause`) 및 기본 VAD 유지(D-054), 최대 24구간·3분·앞뒤 6구간(30초)·8K 컨텍스트(D-055). Gemma 4 E4B 검증 1회 통과 100%(42/42·51/51), 대체 청크 0 달성
+- `llama-server` 번들 준비 스크립트(`scripts/bundle_llama.sh`: `b12655` 고정·SHA-256·`LICENSE`/`NOTICE.txt`, `koja.runtime.LlamaServer`, D-065; jpackage·CI·CUDA DLL 공유 연결은 W2-2b 병합 후 후속 PR)와 로컬 `LlmClient` 구현(`LlamaServerClient`, `LlamaChatProtocol`, `LlamaModel`: OpenAI 호환 API·JSON 스키마 강제·`--reasoning off`·`-ngl auto`·8K 컨텍스트·Gemma 4 E4B 기본/26B 선택·OOM/컨텍스트 초과 분류·일시 오류 재시도, D-066·D-067) 및 단위 테스트
 
 ### 변경
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙
