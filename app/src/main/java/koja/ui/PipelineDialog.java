@@ -37,14 +37,26 @@ final class PipelineDialog {
     private PipelineDialog() {}
 
     static void run(Window owner, Path projectFile, Consumer<Project> onDone, Runnable onStopped) {
+        // 폴더의 stt.json·diar.json은 project.json의 것이다. 같은 폴더의 다른 json(백업 등)으로 돌리면 그 파일들을 덮는다.
+        if (!ProjectFiles.PROJECT.equals(projectFile.getFileName().toString())) {
+            alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", ProjectFiles.PROJECT
+                    + "만 처리할 수 있습니다. 가져오기로 만든 프로젝트 폴더의 " + ProjectFiles.PROJECT + "를 여세요.");
+            return;
+        }
         boolean stt;
         boolean diar;
+        Project project;
         try {
-            Project project = ProjectStore.load(projectFile);
+            project = ProjectStore.load(projectFile);
             stt = Pipeline.pending(projectFile, project, Pipeline.STT);
             diar = Pipeline.pending(projectFile, project, Pipeline.DIAR);
         } catch (IOException e) {
             alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", e.getMessage());
+            return;
+        }
+        // 저장한 검수 내용도 행을 새로 만들면 사라진다. 저장 안 한 편집 확인과 별개로 묻는다.
+        if (!project.rows().isEmpty() && Pipeline.rebuildsRows(projectFile, project) && !confirm(owner, "행 다시 만들기",
+                "저장된 행 " + project.rows().size() + "개(검수한 내용 포함)를 STT 구간으로 새로 만듭니다. 계속할까요?")) {
             return;
         }
         // 모델 1.7GB를 받은 뒤에야 오디오가 없다고 실패하지 않게 먼저 본다(더미 프로젝트 등).
@@ -55,6 +67,7 @@ final class PipelineDialog {
         }
         ModelStore store = new ModelStore(AppPaths.modelsDir());
         List<ModelSpec> missing = LocalEngines.missing(store, stt, diar);
+        List<ModelSpec> ensure = LocalEngines.toEnsure(store, stt, diar);
         if (!missing.isEmpty() && !confirmDownload(owner, store, missing)) {
             store.close();
             return;
@@ -68,11 +81,11 @@ final class PipelineDialog {
         Task<Project> task = new Task<>() {
             @Override
             protected Project call() throws Exception {
-                long total = missing.stream().mapToLong(ModelSpec::expectedSize).sum();
+                long total = ensure.stream().mapToLong(ModelSpec::expectedSize).sum();
                 long before = 0;
-                for (int i = 0; i < missing.size(); i++) {
-                    ModelSpec spec = missing.get(i);
-                    updateMessage("모델 받는 중 (" + (i + 1) + "/" + missing.size() + "): " + spec.relativePath());
+                for (int i = 0; i < ensure.size(); i++) {
+                    ModelSpec spec = ensure.get(i);
+                    updateMessage("모델 확인·받는 중 (" + (i + 1) + "/" + ensure.size() + "): " + spec.relativePath());
                     long offset = before;
                     store.ensureDownloaded(spec, (done, unused) -> updateProgress(offset + done, total), token);
                     before += spec.expectedSize();
@@ -140,16 +153,18 @@ final class PipelineDialog {
         alert.showAndWait();
     }
 
+    private static boolean confirm(Window owner, String header, String text) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, text, ButtonType.OK, ButtonType.CANCEL);
+        alert.initOwner(owner);
+        alert.setHeaderText(header);
+        return alert.showAndWait().filter(ButtonType.OK::equals).isPresent();
+    }
+
     private static boolean confirmDownload(Window owner, ModelStore store, List<ModelSpec> missing) {
         long bytes = missing.stream().mapToLong(ModelSpec::expectedSize).sum();
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
-                String.format(Locale.ROOT, "처음 한 번 로컬 모델 %d개(약 %.1f GB)를 받습니다.%n저장 위치: %s%n"
-                        + "중간에 취소해도 받은 만큼은 남아 다음에 이어 받습니다.",
-                        missing.size(), bytes / 1e9, store.modelsDir()),
-                ButtonType.OK, ButtonType.CANCEL);
-        alert.initOwner(owner);
-        alert.setHeaderText("모델 다운로드");
-        return alert.showAndWait().filter(ButtonType.OK::equals).isPresent();
+        return confirm(owner, "모델 다운로드", String.format(Locale.ROOT,
+                "처음 한 번 로컬 모델 %d개(약 %.1f GB)를 받습니다.%n저장 위치: %s%n중간에 취소해도 받은 만큼은 남아 다음에 이어 받습니다.",
+                missing.size(), bytes / 1e9, store.modelsDir()));
     }
 
     private static String label(String stage) {

@@ -148,6 +148,11 @@ public final class Pipeline {
         return !done(p, stage, dir.resolve(STT.equals(stage) ? ProjectFiles.STT : ProjectFiles.DIAR));
     }
 
+    /** 다음 실행이 rows를 새로 만드는지(사람이 고친 행이 바뀐다). runStages의 조건과 같다. */
+    public static boolean rebuildsRows(Path projectFile, Project p) {
+        return pending(projectFile, p, STT) || pending(projectFile, p, DIAR) || !done(p, ROWS, projectFile);
+    }
+
     private static boolean done(Project p, String stage, Path file) {
         Project.Stage s = p.stages() == null ? null : p.stages().get(stage);
         return s != null && s.done() && Files.isRegularFile(file);

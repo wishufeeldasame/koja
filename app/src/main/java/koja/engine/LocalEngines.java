@@ -21,6 +21,15 @@ public final class LocalEngines {
                 .filter(m -> !store.isInstalled(m)).toList();
     }
 
+    /**
+     * 처리 전에 ModelStore로 확인할 모델: 빠진 것 + 돌릴 단계의 sherpa 모델(작아서 매번 해시를 보고 틀리면 다시 받는다).
+     * whisper 모델(1.6GB)은 실행마다 해시를 보면 수 초 걸려 받을 때만 검사한다.
+     */
+    public static List<ModelSpec> toEnsure(ModelStore store, boolean stt, boolean diar) {
+        return Stream.concat(stt ? STT_MODELS.stream() : Stream.empty(), diar ? DIAR_MODELS.stream() : Stream.empty())
+                .filter(m -> m != WhisperServer.MODEL || !store.isInstalled(m)).toList();
+    }
+
     public static Pipeline.Opener<Transcriber> transcriber(ModelStore store) {
         return () -> WhisperTranscriber.start(store.pathOf(WhisperServer.MODEL), audio -> {
             // VAD는 CPU라 whisper-server(GPU)와 함께 열려 있어도 된다(절대 규칙 5는 GPU 단계 기준).

@@ -110,7 +110,7 @@ public final class KojaApp extends Application {
             return;
         }
         Path dir = chosenDir.toPath();
-        Path file = dir.resolve("project.json");
+        Path file = dir.resolve(ProjectFiles.PROJECT);
         // 다른 영상의 프로젝트나 프록시를 덮어쓰지 않는다.
         // 가져오기 뒤 처리가 stt.json·diar.json을 쓰므로 그것도 본다.
         if (Files.exists(file) || Files.exists(dir.resolve(ProjectFiles.PROXY))

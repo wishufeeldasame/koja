@@ -355,6 +355,25 @@ class PipelineTest {
         }
     }
 
+    @Test
+    void rebuildsRowsOnlyWhenAStageOrRowsArePending() throws Exception {
+        Path file = newProject(List.of());
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        assertFalse(Pipeline.rebuildsRows(file, p));
+
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+        assertTrue(Pipeline.rebuildsRows(file, p));
+    }
+
+    /** 작은 sherpa 모델은 설치돼 있어도 매번 확인한다(손상되면 다시 받게). 1.6GB whisper 파일은 CI에서 만들지 않는다. */
+    @Test
+    void ensuresPendingStageModels(@TempDir Path models) {
+        try (koja.runtime.ModelStore store = new koja.runtime.ModelStore(models)) {
+            assertEquals(LocalEngines.STT_MODELS, LocalEngines.toEnsure(store, true, false));
+            assertEquals(LocalEngines.DIAR_MODELS, LocalEngines.toEnsure(store, false, true));
+        }
+    }
+
     static Project withRows(Project p, List<Project.Row> rows) {
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), rows,
                 p.ignoredSegIds(), p.glossary(), p.stages());
