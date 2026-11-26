@@ -9,16 +9,40 @@
 set -euo pipefail
 
 OUT="${1:-app/build/llama}"
-CUDA_OUT="${2:-app/build/cuda}"
+CUDA_OUT_ARG="${2-}"
+
+reject_bad_target() { # 심볼릭 링크·끝 `.`/`..` 세그먼트·윈도우 UNC 경로를 배치 전에 거부한다.
+  local raw="$1"
+  local p="$raw"
+  if [ "$os" = win ]; then
+    p="${p//\\//}"
+    if [[ "$p" == //* ]]; then
+      echo "UNC 네트워크 경로는 지원하지 않는다: $raw" >&2
+      exit 1
+    fi
+  fi
+  while [ "${#p}" -gt 1 ] && [[ "$p" == */ ]]; do
+    p="${p%/}"
+  done
+  case "$p" in
+    .|..|*/.|*/..)
+      echo "끝이 '.' 또는 '..'인 출력 경로는 사용할 수 없다: $raw" >&2
+      exit 1
+      ;;
+  esac
+  [ ! -L "$p" ] || { echo "출력 경로가 디렉터리가 아니라서 덮어쓰지 않는다: $raw" >&2; exit 1; }
+}
 
 norm_path() { # 상대·`.`·`..`·윈도우 표기(/c vs C:)와 심볼릭 링크를 세그먼트 단위로 물리 경로까지 해소한다.
   local p="$1"
-  if command -v cygpath > /dev/null 2>&1; then
-    p=$(cygpath -u "$p")
+  if [ "$os" = win ]; then
+    if command -v cygpath > /dev/null 2>&1; then
+      p=$(cygpath -u "$p")
+    fi
+    p="${p//\\//}"
   fi
-  p="${p//\\//}"
   local cur
-  if [[ "$p" == [A-Za-z]:/* ]]; then
+  if [ "$os" = win ] && [[ "$p" == [A-Za-z]:/* ]]; then
     cur="${p:0:2}"
     p="${p:2}"
   elif [[ "$p" == /* ]]; then
@@ -38,7 +62,7 @@ norm_path() { # 상대·`.`·`..`·윈도우 표기(/c vs C:)와 심볼릭 링�
         cur=$(cd "$cur" && pwd -P)
         cur="${cur%/}"
       fi
-      if [[ "$cur" == [A-Za-z]: ]]; then
+      if [ "$os" = win ] && [[ "$cur" == [A-Za-z]: ]]; then
         continue
       fi
       if [[ "$cur" == */* ]]; then
@@ -108,11 +132,26 @@ case "$(uname -s)" in
     ;;
 esac
 
-# 출력 경로 자체가 심볼릭 링크면 먼저 거부하고(끝 슬래시 제거 후 확인), 상위 링크·`..`까지 푼 물리 경로로 비교·배치를 통일한다.
-out_raw="${OUT%/}"
-cuda_raw="${CUDA_OUT%/}"
-[ ! -L "${out_raw:-/}" ] || { echo "출력 경로가 디렉터리가 아니라서 덮어쓰지 않는다: $OUT" >&2; exit 1; }
-[ ! -L "${cuda_raw:-/}" ] || { echo "출력 경로가 디렉터리가 아니라서 덮어쓰지 않는다: $CUDA_OUT" >&2; exit 1; }
+# 둘째 인자를 생략하면 OUT 형제 cuda/를 기본값으로 쓴다(기본 OUT=app/build/llama → app/build/cuda, D-060·D-069).
+if [ -n "$CUDA_OUT_ARG" ]; then
+  CUDA_OUT="$CUDA_OUT_ARG"
+else
+  out_for_parent="$OUT"
+  [ "$os" = win ] && out_for_parent="${out_for_parent//\\//}"
+  while [ "${#out_for_parent}" -gt 1 ] && [[ "$out_for_parent" == */ ]]; do
+    out_for_parent="${out_for_parent%/}"
+  done
+  out_dir=$(dirname "$out_for_parent")
+  if [ "$out_dir" = "/" ]; then
+    CUDA_OUT="/cuda"
+  else
+    CUDA_OUT="$out_dir/cuda"
+  fi
+fi
+
+# 출력 경로의 심볼릭 링크·끝 `.`/`..`·UNC를 먼저 거부하고, 상위 링크·`..`까지 푼 물리 경로로 중첩 여부를 비교한다.
+reject_bad_target "$OUT"
+reject_bad_target "$CUDA_OUT"
 out_abs=$(norm_path "$OUT")
 cuda_abs_check=$(norm_path "$CUDA_OUT")
 out_cmp="$out_abs"
@@ -125,8 +164,6 @@ if [ "$out_cmp" = "$cuda_cmp" ] || [[ "$out_cmp" == "$cuda_cmp"/* ]] || [[ "$cud
   echo "llama와 cuda 출력 폴더가 같거나 서로 포함한다: $OUT / $CUDA_OUT" >&2
   exit 1
 fi
-OUT="$out_abs"
-CUDA_OUT="$cuda_abs_check"
 
 sha256() {
   if command -v sha256sum > /dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
