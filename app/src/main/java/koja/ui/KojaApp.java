@@ -112,10 +112,12 @@ public final class KojaApp extends Application {
         Path dir = chosenDir.toPath();
         Path file = dir.resolve("project.json");
         // 다른 영상의 프로젝트나 프록시를 덮어쓰지 않는다.
+        // 가져오기 뒤 처리가 stt.json·diar.json을 쓰므로 그것도 본다.
         if (Files.exists(file) || Files.exists(dir.resolve(ProjectFiles.PROXY))
-                || Files.exists(dir.resolve(ProjectFiles.AUDIO))) {
-            error("가져올 수 없습니다", new IOException("project.json, " + ProjectFiles.PROXY + ", " + ProjectFiles.AUDIO
-                    + " 중 하나가 이미 있는 폴더입니다. 빈 폴더를 고르세요."));
+                || Files.exists(dir.resolve(ProjectFiles.AUDIO)) || Files.exists(dir.resolve(ProjectFiles.STT))
+                || Files.exists(dir.resolve(ProjectFiles.DIAR))) {
+            error("가져올 수 없습니다", new IOException("project.json, " + ProjectFiles.PROXY + ", " + ProjectFiles.AUDIO + ", "
+                    + ProjectFiles.STT + ", " + ProjectFiles.DIAR + " 중 하나가 이미 있는 폴더입니다. 빈 폴더를 고르세요."));
             return;
         }
         Path source = video.toPath().toAbsolutePath();
@@ -165,7 +167,7 @@ public final class KojaApp extends Application {
     }
 
     private void process(Path file) {
-        PipelineDialog.run(stage, file, project -> show(project, file));
+        PipelineDialog.run(stage, file, project -> show(project, file), () -> open(file));
     }
 
     private void createDummy() {

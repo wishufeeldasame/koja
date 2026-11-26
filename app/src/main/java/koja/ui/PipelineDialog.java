@@ -1,5 +1,7 @@
 package koja.ui;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -18,6 +20,8 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import koja.core.Project;
+import koja.core.ProjectFiles;
+import koja.core.ProjectStore;
 import koja.engine.LocalEngines;
 import koja.engine.Pipeline;
 import koja.runtime.AppPaths;
@@ -27,14 +31,30 @@ import koja.runtime.ModelStore.ModelSpec;
 
 /**
  * M2 처리 창: 빠진 모델을 받고(처음 한 번) STT → 화자 구분 → 행 만들기를 돌린다. FX 스레드에서 부른다.
- * 끝나면 onDone(저장된 프로젝트)을 부른다. 취소·실패는 이 창이 안내한다. 완료된 단계는 남아 다시 실행하면 이어서 한다.
+ * 끝나면 onDone(저장된 프로젝트)을, 취소·실패면 안내한 뒤 onStopped를 부른다. 완료된 단계는 남아 다시 실행하면 이어서 한다.
  */
 final class PipelineDialog {
     private PipelineDialog() {}
 
-    static void run(Window owner, Path projectFile, Consumer<Project> onDone) {
+    static void run(Window owner, Path projectFile, Consumer<Project> onDone, Runnable onStopped) {
+        boolean stt;
+        boolean diar;
+        try {
+            Project project = ProjectStore.load(projectFile);
+            stt = Pipeline.pending(projectFile, project, Pipeline.STT);
+            diar = Pipeline.pending(projectFile, project, Pipeline.DIAR);
+        } catch (IOException e) {
+            alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", e.getMessage());
+            return;
+        }
+        // 모델 1.7GB를 받은 뒤에야 오디오가 없다고 실패하지 않게 먼저 본다(더미 프로젝트 등).
+        if ((stt || diar) && !Files.isRegularFile(projectFile.toAbsolutePath().resolveSibling(ProjectFiles.AUDIO))) {
+            alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", ProjectFiles.AUDIO
+                    + "가 프로젝트 폴더에 없습니다. 파일 → 가져오기로 영상을 가져오세요.");
+            return;
+        }
         ModelStore store = new ModelStore(AppPaths.modelsDir());
-        List<ModelSpec> missing = LocalEngines.missing(store);
+        List<ModelSpec> missing = LocalEngines.missing(store, stt, diar);
         if (!missing.isEmpty() && !confirmDownload(owner, store, missing)) {
             store.close();
             return;
@@ -101,16 +121,23 @@ final class PipelineDialog {
             store.close();
             Throwable t = task.getException();
             boolean cancelled = t instanceof InterruptedException || t instanceof CancellationException;
-            Alert alert = new Alert(cancelled ? Alert.AlertType.INFORMATION : Alert.AlertType.ERROR,
+            alert(owner, cancelled ? Alert.AlertType.INFORMATION : Alert.AlertType.ERROR,
+                    cancelled ? "취소했습니다" : "처리에 실패했습니다",
                     (cancelled ? "" : (t.getMessage() == null ? t.toString() : t.getMessage()) + "\n\n")
                             + "끝난 단계와 받은 모델은 남아 있습니다. 다시 실행하면 이어서 합니다(처리 → 전사·화자 구분 실행).");
-            alert.initOwner(owner);
-            alert.setHeaderText(cancelled ? "취소했습니다" : "처리에 실패했습니다");
-            alert.showAndWait();
+            // 끝난 단계가 디스크에 저장됐다. 화면이 옛 프로젝트를 들고 있으면 저장할 때 그 완료 표시를 덮는다.
+            onStopped.run();
         });
 
         dialog.show();
         worker.start();
+    }
+
+    private static void alert(Window owner, Alert.AlertType type, String header, String text) {
+        Alert alert = new Alert(type, text);
+        alert.initOwner(owner);
+        alert.setHeaderText(header);
+        alert.showAndWait();
     }
 
     private static boolean confirmDownload(Window owner, ModelStore store, List<ModelSpec> missing) {

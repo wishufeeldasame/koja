@@ -54,6 +54,7 @@ public final class Pipeline {
     private Pipeline() {}
 
     /**
+     * 단계를 다시 돌릴 때는 먼저 그 단계와 rows의 완료 표시를 지워 저장하므로, 어디서 멈춰도 다음 실행이 어긋난 결과를 완료로 보지 않는다.
      * 취소(스레드 interrupt)는 단계 사이·저장 중에 와도 InterruptedException으로 끝난다. 다른 실행이 돌고 있으면 끝날 때까지 기다린다.
      * 진행률 콜백 안에서 다시 부르면 IllegalStateException(엔진을 연 채 다른 엔진을 열게 된다).
      */
@@ -86,13 +87,15 @@ public final class Pipeline {
         if (done(project, STT, sttFile)) {
             sttResult = StageStore.loadStt(sttFile);
         } else {
+            // 결과 파일을 쓰기 전에 옛 완료 표시를 지워 둔다. 새 stt.json 저장 뒤 project.json 저장 전에 멈추면
+            // 옛 stages.stt·rows가 새 구간 id를 가리키는 채로 남는다. 옛 행은 옛 구간 id를 가리키므로 rows도 지운다.
+            project = invalidate(project, projectFile, STT);
             try (Transcriber t = open(stt)) {
                 sttResult = t.transcribe(audio, progress(listener, STT));
             }
             checkInterrupt();
             StageStore.saveStt(sttResult, sttFile);
-            // 옛 행은 옛 구간 id를 가리킨다. 이 저장 뒤에 멈춰도 다음 실행이 행을 다시 만들도록 rows 완료 표시를 같이 지운다.
-            project = withStage(withoutStage(project, ROWS), STT, sttResult.engine());
+            project = withStage(project, STT, sttResult.engine());
             ProjectStore.save(project, projectFile);
         }
 
@@ -102,6 +105,7 @@ public final class Pipeline {
             diarResult = StageStore.loadDiar(diarFile);
         } else {
             checkInterrupt();
+            project = invalidate(project, projectFile, DIAR);
             try (Diarizer d = open(diar)) {
                 diarResult = d.diarize(audio, progress(listener, DIAR));
             }
@@ -138,6 +142,12 @@ public final class Pipeline {
         }
     }
 
+    /** 다음 실행에서 이 단계를 돌려야 하는지. UI가 그 단계에 필요한 모델만 받는 데 쓴다. */
+    public static boolean pending(Path projectFile, Project p, String stage) {
+        Path dir = projectFile.toAbsolutePath().getParent();
+        return !done(p, stage, dir.resolve(STT.equals(stage) ? ProjectFiles.STT : ProjectFiles.DIAR));
+    }
+
     private static boolean done(Project p, String stage, Path file) {
         Project.Stage s = p.stages() == null ? null : p.stages().get(stage);
         return s != null && s.done() && Files.isRegularFile(file);
@@ -147,9 +157,22 @@ public final class Pipeline {
         return f -> listener.progress(stage, f);
     }
 
-    private static Project withoutStage(Project p, String stage) {
+    /** 단계를 다시 돌리기 전에 그 단계와 rows 완료 표시를 지워 저장한다. 지울 것이 없으면 저장하지 않는다. */
+    private static Project invalidate(Project p, Path projectFile, String stage) throws IOException {
+        Map<String, Project.Stage> stages = p.stages() == null ? Map.of() : p.stages();
+        if (!stages.containsKey(stage) && !stages.containsKey(ROWS)) {
+            return p;
+        }
+        Project cleared = withoutStages(p, stage, ROWS);
+        ProjectStore.save(cleared, projectFile);
+        return cleared;
+    }
+
+    private static Project withoutStages(Project p, String... remove) {
         Map<String, Project.Stage> stages = new LinkedHashMap<>(p.stages() == null ? Map.of() : p.stages());
-        stages.remove(stage);
+        for (String stage : remove) {
+            stages.remove(stage);
+        }
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), p.rows(),
                 p.ignoredSegIds(), p.glossary(), Map.copyOf(stages));
     }

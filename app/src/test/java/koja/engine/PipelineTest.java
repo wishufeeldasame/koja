@@ -301,6 +301,60 @@ class PipelineTest {
         assertEquals(3, p.rows().size());
     }
 
+    /** 결과 파일을 쓰기 전에 옛 완료 표시가 디스크에서 지워져 있어야 한다. 새 stt.json 뒤 project.json 저장 전에 멈춰도 어긋나지 않는다. */
+    @Test
+    void rerunClearsStageAndRowsFlagsBeforeEngineRuns() throws Exception {
+        Path file = newProject(List.of());
+        Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Files.delete(file.resolveSibling(ProjectFiles.STT));
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+        List<java.util.Set<String>> seen = new ArrayList<>();
+        Pipeline.Opener<Transcriber> stt = () -> new FakeStt() {
+            @Override
+            public SttResult transcribe(Path audio, DoubleConsumer progress) throws InterruptedException {
+                seen.add(load(file).stages().keySet());
+                return STT;
+            }
+        };
+        Pipeline.Opener<Diarizer> diar = () -> new FakeDiar() {
+            @Override
+            public DiarResult diarize(Path audio, DoubleConsumer progress) {
+                seen.add(load(file).stages().keySet());
+                return DIAR;
+            }
+        };
+
+        Pipeline.run(file, stt, diar, (s, f) -> {});
+
+        assertEquals(List.of(java.util.Set.of("import", Pipeline.DIAR), java.util.Set.of("import", Pipeline.STT)), seen);
+    }
+
+    static Project load(Path file) {
+        try {
+            return ProjectStore.load(file);
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    void pendingFollowsDoneFlagAndResultFile() throws Exception {
+        Path file = newProject(List.of());
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (s, f) -> {});
+        Files.delete(file.resolveSibling(ProjectFiles.DIAR));
+
+        assertFalse(Pipeline.pending(file, p, Pipeline.STT));
+        assertTrue(Pipeline.pending(file, p, Pipeline.DIAR));
+    }
+
+    @Test
+    void missingModelsOnlyForPendingStages(@TempDir Path models) {
+        try (koja.runtime.ModelStore store = new koja.runtime.ModelStore(models)) {
+            assertEquals(LocalEngines.DIAR_MODELS, LocalEngines.missing(store, false, true));
+            assertEquals(List.of(), LocalEngines.missing(store, false, false));
+        }
+    }
+
     static Project withRows(Project p, List<Project.Row> rows) {
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), rows,
                 p.ignoredSegIds(), p.glossary(), p.stages());
