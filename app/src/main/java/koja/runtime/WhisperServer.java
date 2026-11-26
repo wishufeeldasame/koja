@@ -37,7 +37,7 @@ public final class WhisperServer {
      */
     public static LocalServer start(Path model) throws IOException {
         Optional<Path> bundled = AppPaths.bundledExecutable(DIR, "whisper-server");
-        String exe = bundled.map(Path::toString).orElse(fallback(System.getenv("KOJA_WHISPER_SERVER")));
+        String exe = bundled.map(Path::toString).orElseGet(() -> fallback(System.getenv("KOJA_WHISPER_SERVER")));
         String threads = Integer.toString(Math.min(8, Runtime.getRuntime().availableProcessors()));
         // -nlp: verbose_json마다 언어 확률을 따로 한 번 더 계산하지 않게 한다. 언어는 language 필드로 충분하다.
         // 윈도우 whisper-server는 인자를 ANSI 코드 페이지로 받아 UTF-8로 해석해서 한글 경로가 깨진다(whisper.cpp #4018).

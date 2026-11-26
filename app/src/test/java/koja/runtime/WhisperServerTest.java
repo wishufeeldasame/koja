@@ -34,7 +34,7 @@ class WhisperServerTest {
 
     @Test
     void fallsBackToEnvThenPath() {
-        assertEquals("/env/whisper-server", WhisperServer.fallback("/env/whisper-server"));
+        assertEquals(Path.of("/env/whisper-server").toAbsolutePath().toString(), WhisperServer.fallback("/env/whisper-server"));
         assertEquals("whisper-server", WhisperServer.fallback(" "));
         assertEquals("whisper-server", WhisperServer.fallback(null));
         assertEquals("my-whisper", WhisperServer.fallback("my-whisper"));

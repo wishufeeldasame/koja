@@ -8,6 +8,7 @@ set -euo pipefail
 
 OUT="${1:-app/build/whisper}"
 CUDA_OUT="${2:-app/build/cuda}"
+[ "$OUT" != "$CUDA_OUT" ] || { echo "whisper와 cuda 출력 폴더가 같다: $OUT" >&2; exit 1; }
 
 # 윈도우 실측(poc/WINDOWS.md)에 쓴 빌드와 같은 커밋으로 맞춘다.
 WHISPER_TAG=b5907
@@ -85,9 +86,9 @@ fi
 stage="$OUT"
 cuda_stage="$CUDA_OUT"
 ready=false
-if [ -f "$OUT/$exe" ] && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null)" = "$notice" ]; then
+if [ -f "$OUT/$exe" ] && [ -f "$OUT/LICENSE" ] && [ "$(cat "$OUT/NOTICE.txt" 2> /dev/null)" = "$notice" ]; then
   ready=true
-  if [ "$os" = win ] && [ "$(cat "$CUDA_OUT/NOTICE.txt" 2> /dev/null)" != "$cuda_notice" ]; then
+  if [ "$os" = win ] && { [ ! -f "$CUDA_OUT/LICENSE.txt" ] || [ "$(cat "$CUDA_OUT/NOTICE.txt" 2> /dev/null)" != "$cuda_notice" ]; }; then
     ready=false
   fi
 fi
@@ -148,6 +149,7 @@ if [ "$stage" != "$OUT" ]; then
   mv "$stage" "$OUT"
   if [ "$os" = win ]; then
     rm -rf "$CUDA_OUT"
+    mkdir -p "$(dirname "$CUDA_OUT")"
     mv "$cuda_stage" "$CUDA_OUT"
   fi
 fi

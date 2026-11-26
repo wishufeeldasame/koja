@@ -80,6 +80,9 @@ public final class WhisperTranscriber implements Transcriber {
                 progress.accept((i + 1) / (double) spans.size());
             }
         }
+        if (Thread.interrupted()) {
+            throw new InterruptedException();
+        }
         return new SttResult(StageStore.CURRENT_VERSION, name(), out);
     }
 
