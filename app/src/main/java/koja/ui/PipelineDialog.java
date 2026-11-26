@@ -143,7 +143,9 @@ final class PipelineDialog {
             alert(owner, cancelled ? Alert.AlertType.INFORMATION : Alert.AlertType.ERROR,
                     cancelled ? "취소했습니다" : "처리에 실패했습니다",
                     (cancelled ? "" : (t.getMessage() == null ? t.toString() : t.getMessage()) + "\n\n")
-                            + "끝난 단계와 받은 모델은 남아 있습니다. 다시 실행하면 이어서 합니다(처리 → 전사·화자 구분 실행).");
+                            + "끝난 단계와 받은 모델은 남아 있습니다. 다시 실행하면 이어서 합니다(처리 → 전사·화자 구분 실행)."
+                            + (cancelled ? "" : "\n오류가 " + ProjectFiles.STT + "·" + ProjectFiles.DIAR
+                                    + "를 가리키면 그 파일이 손상된 것입니다. 지우고 다시 실행하면 그 단계부터 다시 합니다."));
             // 끝난 단계가 디스크에 저장됐다. 화면이 옛 프로젝트를 들고 있으면 저장할 때 그 완료 표시를 덮는다.
             onStopped.run();
         });

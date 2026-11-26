@@ -90,6 +90,8 @@ public final class Pipeline {
             // 결과 파일을 쓰기 전에 옛 완료 표시를 지워 둔다. 새 stt.json 저장 뒤 project.json 저장 전에 멈추면
             // 옛 stages.stt·rows가 새 구간 id를 가리키는 채로 남는다. 옛 행은 옛 구간 id를 가리키므로 rows도 지운다.
             project = invalidate(project, projectFile, STT);
+            // 엔진 시작(서버 기동은 최대 몇 분)이 앞 단계 100%로 보이지 않게 먼저 알린다.
+            listener.progress(STT, -1);
             try (Transcriber t = open(stt)) {
                 sttResult = t.transcribe(audio, progress(listener, STT));
             }
@@ -106,6 +108,7 @@ public final class Pipeline {
         } else {
             checkInterrupt();
             project = invalidate(project, projectFile, DIAR);
+            listener.progress(DIAR, -1);
             try (Diarizer d = open(diar)) {
                 diarResult = d.diarize(audio, progress(listener, DIAR));
             }

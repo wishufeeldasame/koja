@@ -69,7 +69,7 @@ class PipelineTest {
         Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, (stage, f) -> progress.add(stage + " " + f));
 
         assertEquals(List.of("open stt", "close stt", "open diar", "close diar"), log);
-        assertEquals(List.of("stt 1.0"), progress);
+        assertEquals(List.of("stt -1.0", "stt 1.0", "diar -1.0"), progress);
         assertEquals(List.of("S1", "S2"), p.sttSegments().stream().limit(2).map(SttSegment::speakerId).toList());
         assertEquals(null, p.sttSegments().get(2).speakerId());
         assertEquals(List.of(new Speaker("S1", "화자 미확인 1", false), new Speaker("S2", "화자 미확인 2", false)),
@@ -196,7 +196,8 @@ class PipelineTest {
                         throw new AssertionError(e);
                     }
                 }));
-        assertEquals(List.of("open stt", "close stt"), log);
+        // 첫 진행률 알림이 엔진을 열기 전이라 아무 엔진도 열리지 않는다.
+        assertEquals(List.of(), log);
     }
 
     /** 화자 구분 done은 화자표 초기화와 같이 저장된다. 그 전에 멈추면 다음 실행이 화자 구분부터 다시 한다. */
