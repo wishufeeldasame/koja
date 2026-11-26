@@ -84,6 +84,28 @@ class AppPathsTest {
         assertFalse(AppPaths.bundledExecutable(winLauncher.toString(), "missing", "foo", "Windows 11").isPresent());
     }
 
+    @Test
+    void bundledDirectoryPerOs(@TempDir Path dir) throws IOException {
+        Path macContents = dir.resolve("앱 폴더").resolve("koja.app").resolve("Contents");
+        Path macLauncher = macContents.resolve("MacOS").resolve("koja");
+        Path macNative = Files.createDirectories(macContents.resolve("sherpa-native"));
+        assertEquals(
+                Optional.of(macNative),
+                AppPaths.bundledDirectory(macLauncher.toString(), "sherpa-native", "Mac OS X"));
+
+        Path winRoot = dir.resolve("앱 폴더").resolve("koja");
+        Path winLauncher = winRoot.resolve("koja.exe");
+        Path winNative = Files.createDirectories(winRoot.resolve("sherpa-native"));
+        assertEquals(
+                Optional.of(winNative),
+                AppPaths.bundledDirectory(winLauncher.toString(), "sherpa-native", "Windows 11"));
+
+        assertTrue(AppPaths.bundledDirectory(null, "sherpa-native", "Mac OS X").isEmpty());
+        assertTrue(AppPaths.bundledDirectory(winLauncher.toString(), "missing", "Windows 11").isEmpty());
+        assertThrows(IllegalArgumentException.class,
+                () -> AppPaths.bundledDirectory(winLauncher.toString(), " ", "Windows 11"));
+    }
+
     private static Path touch(Path file) throws IOException {
         Files.createDirectories(file.getParent());
         return Files.createFile(file);

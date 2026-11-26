@@ -81,6 +81,34 @@ public final class AppPaths {
     }
 
     /**
+     * jpackage {@code --app-content}로 번들된 폴더를 찾는다.
+     * 맥은 {@code Contents/<dirName>}, 윈도우는 {@code <설치 폴더>/<dirName>}.
+     */
+    public static Optional<Path> bundledDirectory(String dirName) {
+        return bundledDirectory(
+                System.getProperty("jpackage.app-path"),
+                dirName,
+                System.getProperty("os.name"));
+    }
+
+    static Optional<Path> bundledDirectory(String appPath, String dirName, String osName) {
+        if (dirName == null || dirName.isBlank()) {
+            throw new IllegalArgumentException("번들 폴더 이름이 비어 있습니다");
+        }
+        if (appPath == null || appPath.isBlank()) {
+            return Optional.empty();
+        }
+        Path launcherDir = Path.of(appPath).toAbsolutePath().getParent();
+        if (launcherDir == null) {
+            return Optional.empty();
+        }
+        Path candidate = isMac(osName)
+                ? launcherDir.resolveSibling(dirName)
+                : launcherDir.resolve(dirName);
+        return Files.isDirectory(candidate) ? Optional.of(candidate) : Optional.empty();
+    }
+
+    /**
      * jpackage {@code --app-content}로 번들된 실행 파일을 찾는다.
      * 맥은 {@code Contents/<dirName>/<baseName>}, 윈도우는 {@code <설치 폴더>/<dirName>/<baseName>.exe}.
      */
@@ -93,21 +121,10 @@ public final class AppPaths {
     }
 
     static Optional<Path> bundledExecutable(String appPath, String dirName, String baseName, String osName) {
-        if (dirName == null || dirName.isBlank()) {
-            throw new IllegalArgumentException("번들 폴더 이름이 비어 있습니다");
-        }
         String exeName = executableName(baseName, osName);
-        if (appPath == null || appPath.isBlank()) {
-            return Optional.empty();
-        }
-        Path launcherDir = Path.of(appPath).toAbsolutePath().getParent();
-        if (launcherDir == null) {
-            return Optional.empty();
-        }
-        Path candidate = isMac(osName)
-                ? launcherDir.resolveSibling(dirName).resolve(exeName)
-                : launcherDir.resolve(dirName).resolve(exeName);
-        return Files.isRegularFile(candidate) ? Optional.of(candidate) : Optional.empty();
+        return bundledDirectory(appPath, dirName, osName)
+                .map(dir -> dir.resolve(exeName))
+                .filter(Files::isRegularFile);
     }
 
     private static Path requireUserHome(String userHome) {

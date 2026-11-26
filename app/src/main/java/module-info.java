@@ -4,6 +4,7 @@ module koja {
     requires javafx.media;
     requires tools.jackson.databind;
     requires jdk.httpserver;
+    requires sherpa.onnx.jvm;
 
     exports koja.ui to javafx.graphics;
     // Jackson이 레코드를 리플렉션으로 만든다.
