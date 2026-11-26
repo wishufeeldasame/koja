@@ -43,6 +43,21 @@ class LlamaServerTest {
         assertNull(LlamaServer.workingDirectory(" "));
     }
 
+    @Test
+    void resolvesRelativePathToAbsoluteAndPreservesBareCommandName() {
+        String bare = LlamaServer.resolveExecutable(" llama-server ");
+        assertEquals("llama-server", bare);
+
+        Path relative = Path.of("한글 폴더", "하위 폴더", "llama-server");
+        String resolved = LlamaServer.resolveExecutable(relative.toString());
+        assertEquals(relative.toAbsolutePath().normalize().toString(), resolved);
+    }
+
+    @Test
+    void clearsLlamaArgAndLogEnvironmentPrefixes() {
+        assertEquals(java.util.List.of("LLAMA_ARG_", "LLAMA_LOG_"), LlamaServer.clearedEnvironmentPrefixes());
+    }
+
     private static Path touch(Path file) throws IOException {
         Files.createDirectories(file.getParent());
         return Files.createFile(file);

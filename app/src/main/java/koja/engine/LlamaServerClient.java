@@ -40,6 +40,18 @@ public final class LlamaServerClient implements LlmClient {
 
     private static final String CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
     private static final Pattern LISTENING_PORT_PATTERN = Pattern.compile("http://127\\.0\\.0\\.1:(\\d+)");
+    // 로컬 격리(원격 터널·바인딩 주소)와 포트 로그 추출(INFO 로그)을 깨는 인자는 extraArgs에서 막는다.
+    private static final List<String> FORBIDDEN_EXTRA_ARGS = List.of(
+            "--connect",
+            "--connect-code",
+            "--host",
+            "--port",
+            "--log-disable",
+            "--log-file",
+            "--log-jsonl",
+            "-lv",
+            "--verbosity",
+            "--log-verbosity");
 
     /** {@code llama-server} 기동·호출 설정. */
     public record Config(
@@ -64,6 +76,7 @@ public final class LlamaServerClient implements LlmClient {
                 throw new IllegalArgumentException("contextSize는 양수여야 합니다: " + contextSize);
             }
             extraArgs = extraArgs == null ? List.of() : List.copyOf(extraArgs);
+            validateExtraArgs(extraArgs);
             Objects.requireNonNull(startupTimeout, "startupTimeout");
             Objects.requireNonNull(requestTimeout, "requestTimeout");
             Objects.requireNonNull(retryDelay, "retryDelay");
@@ -203,17 +216,25 @@ public final class LlamaServerClient implements LlmClient {
         if (!Files.isRegularFile(normalizedModel)) {
             throw new IOException("LLM 모델 파일이 없습니다: " + normalizedModel);
         }
-        return startWithCommand(config, port -> buildCommand(config, normalizedModel, port));
+        String resolvedExecutable = LlamaServer.resolveExecutable(config.executable());
+        return startWithCommand(config, resolvedExecutable, port -> buildCommand(resolvedExecutable, config, normalizedModel, port));
     }
 
     static LlamaServerClient startWithCommand(Config config, IntFunction<List<String>> commandBuilder)
             throws IOException {
+        String resolvedExecutable = LlamaServer.resolveExecutable(config.executable());
+        return startWithCommand(config, resolvedExecutable, commandBuilder);
+    }
+
+    private static LlamaServerClient startWithCommand(
+            Config config, String resolvedExecutable, IntFunction<List<String>> commandBuilder) throws IOException {
         LocalServer.Builder serverBuilder = LocalServer.builder("llama-server", commandBuilder)
                 .portFromLog(LlamaServerClient::extractListeningPort)
                 .healthCheck(LocalServer.HealthCheck.jsonStatusOk("/health"))
                 .startupTimeout(config.startupTimeout())
-                .environment(LlamaServer.processEnvironment(config.executable()));
-        Path workDir = LlamaServer.workingDirectory(config.executable());
+                .unsetEnvironmentPrefixes(LlamaServer.clearedEnvironmentPrefixes())
+                .environment(LlamaServer.processEnvironment(resolvedExecutable));
+        Path workDir = LlamaServer.workingDirectory(resolvedExecutable);
         if (workDir != null) {
             serverBuilder.workingDirectory(workDir);
         }
@@ -257,11 +278,15 @@ public final class LlamaServerClient implements LlmClient {
     /**
      * {@code llama-server} 실행 인자를 조립한다.
      * {@code -ngl auto}(--fit 기본 켜짐)로 8~10GB 카드에서 E4B 전부 GPU·26B 일부 CPU 자동 배치를 쓰고,
-     * {@code --reasoning off}로 추론 토큰 낭비를 막는다(D-041, D-055).
+     * {@code --reasoning off}로 추론 토큰 낭비를 막으며 {@code --log-verbosity 3}으로 포트 시작 로그를 보장한다(D-041, D-055, D-066).
      */
     static List<String> buildCommand(Config config, Path modelPath, int port) {
+        return buildCommand(LlamaServer.resolveExecutable(config.executable()), config, modelPath, port);
+    }
+
+    private static List<String> buildCommand(String resolvedExecutable, Config config, Path modelPath, int port) {
         List<String> cmd = new ArrayList<>();
-        cmd.add(config.executable());
+        cmd.add(resolvedExecutable);
         cmd.add("-m");
         cmd.add(modelPath.toString());
         cmd.add("--host");
@@ -276,8 +301,24 @@ public final class LlamaServerClient implements LlmClient {
         cmd.add("1");
         cmd.add("--reasoning");
         cmd.add("off");
+        cmd.add("--log-verbosity");
+        cmd.add("3");
         cmd.addAll(config.extraArgs());
         return cmd;
+    }
+
+    private static void validateExtraArgs(List<String> extraArgs) {
+        for (String arg : extraArgs) {
+            if (arg == null || arg.isBlank()) {
+                throw new IllegalArgumentException("extraArgs에 비어 있는 인자가 있습니다");
+            }
+            String trimmed = arg.trim();
+            for (String forbidden : FORBIDDEN_EXTRA_ARGS) {
+                if (trimmed.equals(forbidden) || trimmed.startsWith(forbidden + "=")) {
+                    throw new IllegalArgumentException("관리되는 llama-server에는 사용할 수 없는 인자입니다: " + trimmed);
+                }
+            }
+        }
     }
 
     static OptionalInt extractListeningPort(String line) {

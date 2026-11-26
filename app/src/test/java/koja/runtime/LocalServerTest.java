@@ -254,6 +254,27 @@ class LocalServerTest {
         assertTrue(port > 0 && port <= 65535);
     }
 
+    @Test
+    void applyEnvironmentRemovesPrefixesCaseInsensitivelyBeforeApplyingOverrides() {
+        java.util.Map<String, String> env = new java.util.LinkedHashMap<>();
+        env.put("LLAMA_ARG_CONNECT", "1");
+        env.put("llama_arg_log_verbosity", "2");
+        env.put("LLAMA_LOG_FILE", "/tmp/x");
+        env.put("KEEP_ME", "yes");
+
+        LocalServer.applyEnvironment(
+                env,
+                List.of("LLAMA_ARG_", "LLAMA_LOG_"),
+                java.util.Map.of("LLAMA_ARG_CUSTOM", "ok", "ADDED", "2"));
+
+        assertFalse(env.containsKey("LLAMA_ARG_CONNECT"));
+        assertFalse(env.containsKey("llama_arg_log_verbosity"));
+        assertFalse(env.containsKey("LLAMA_LOG_FILE"));
+        assertEquals("yes", env.get("KEEP_ME"));
+        assertEquals("ok", env.get("LLAMA_ARG_CUSTOM"));
+        assertEquals("2", env.get("ADDED"));
+    }
+
     private static boolean waitForLogContaining(LocalServer server, String token) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
         while (System.nanoTime() < deadline) {

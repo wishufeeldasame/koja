@@ -113,15 +113,16 @@ class LlamaServerClientTest {
     @Test
     void buildsExpectedCliCommandWith8kContextAndReasoningOff(@TempDir Path dir) {
         Path model = dir.resolve("모델 폴더").resolve("gemma-4-E4B-it-Q4_K_M.gguf");
+        Path relativeExe = Path.of("상대 폴더", "llama-server");
         LlamaServerClient.Config cfg = LlamaServerClient.builder(model)
-                .executable("/bundle/llama-server")
+                .executable(relativeExe.toString())
                 .modelName(LlamaModel.GEMMA_4_E4B.id())
                 .extraArgs(List.of("--seed", "42"))
                 .build();
 
         List<String> cmd = LlamaServerClient.buildCommand(cfg, model, 0);
         assertEquals(List.of(
-                "/bundle/llama-server",
+                relativeExe.toAbsolutePath().normalize().toString(),
                 "-m", model.toString(),
                 "--host", "127.0.0.1",
                 "--port", "0",
@@ -129,7 +130,26 @@ class LlamaServerClientTest {
                 "-c", "8192",
                 "-np", "1",
                 "--reasoning", "off",
+                "--log-verbosity", "3",
                 "--seed", "42"), cmd);
+    }
+
+    @Test
+    void rejectsForbiddenTunnelAndLogExtraArgs(@TempDir Path dir) {
+        Path model = dir.resolve("dummy.gguf");
+        for (String arg : List.of(
+                "--connect", "--connect=1", "--connect-code", "--connect-code=abc",
+                "--host", "--host=0.0.0.0", "--port", "--port=8080",
+                "--log-disable", "--log-file", "--log-jsonl",
+                "-lv", "-lv=2", "--verbosity", "--log-verbosity", "--log-verbosity=1")) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> LlamaServerClient.builder(model)
+                            .executable("llama-server")
+                            .extraArgs(List.of(arg))
+                            .build(),
+                    "금지 인자가 거부되어야 합니다: " + arg);
+        }
     }
 
     @Test
