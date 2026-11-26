@@ -1,8 +1,11 @@
 package koja.ui;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CancellationException;
@@ -87,6 +90,19 @@ final class PipelineDialog {
         Task<Project> task = new Task<>() {
             @Override
             protected Project call() throws Exception {
+                // Pipeline 잠금은 이 JVM 안에서만 통한다. 앱을 두 번 띄워도 GPU 단계가 겹치지 않게 OS 파일 잠금을 건다(절대 규칙 5).
+                Path lockFile = AppPaths.dataDir().resolve("pipeline.lock");
+                Files.createDirectories(lockFile.getParent());
+                try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                        FileLock lock = channel.tryLock()) {
+                    if (lock == null) {
+                        throw new IOException("다른 koja 창에서 전사·화자 구분을 하고 있습니다. 끝난 뒤 다시 실행하세요.");
+                    }
+                    return process();
+                }
+            }
+
+            private Project process() throws Exception {
                 long total = ensure.stream().mapToLong(ModelSpec::expectedSize).sum();
                 long before = 0;
                 for (int i = 0; i < ensure.size(); i++) {
@@ -139,13 +155,15 @@ final class PipelineDialog {
             dialog.close();
             store.close();
             Throwable t = task.getException();
-            boolean cancelled = t instanceof InterruptedException || t instanceof CancellationException;
+            // 모델 해시 검사 중 interrupt는 ClosedByInterruptException 등으로 올 수 있어 사용자가 누른 취소를 기준으로 본다.
+            boolean cancelled = token.isCancelled() || t instanceof InterruptedException || t instanceof CancellationException;
             alert(owner, cancelled ? Alert.AlertType.INFORMATION : Alert.AlertType.ERROR,
                     cancelled ? "취소했습니다" : "처리에 실패했습니다",
                     (cancelled ? "" : (t.getMessage() == null ? t.toString() : t.getMessage()) + "\n\n")
                             + "끝난 단계와 받은 모델은 남아 있습니다. 다시 실행하면 이어서 합니다(처리 → 전사·화자 구분 실행)."
                             + (cancelled ? "" : "\n오류가 " + ProjectFiles.STT + "·" + ProjectFiles.DIAR
-                                    + "를 가리키면 그 파일이 손상된 것입니다. 지우고 다시 실행하면 그 단계부터 다시 합니다."));
+                                    + "의 형식·내용이 잘못됐다는 것이면 그 파일을 지우고 다시 실행하면 그 단계부터 다시 합니다."
+                                    + " 권한·잠금 오류면 지우지 말고 원인을 해결한 뒤 다시 실행하세요."));
             // 끝난 단계가 디스크에 저장됐다. 화면이 옛 프로젝트를 들고 있으면 저장할 때 그 완료 표시를 덮는다.
             onStopped.run();
         });
@@ -171,8 +189,9 @@ final class PipelineDialog {
     private static boolean confirmDownload(Window owner, ModelStore store, List<ModelSpec> missing) {
         long bytes = missing.stream().mapToLong(ModelSpec::expectedSize).sum();
         return confirm(owner, "모델 다운로드", String.format(Locale.ROOT,
-                "처음 한 번 로컬 모델 %d개(약 %.1f GB)를 받습니다.%n저장 위치: %s%n중간에 취소해도 받은 만큼은 남아 다음에 이어 받습니다.",
-                missing.size(), bytes / 1e9, store.modelsDir()));
+                "처음 한 번 로컬 모델 %d개(약 %s)를 받습니다.%n저장 위치: %s%n중간에 취소해도 받은 만큼은 남아 다음에 이어 받습니다.",
+                missing.size(), bytes >= 1e9 ? String.format(Locale.ROOT, "%.1f GB", bytes / 1e9)
+                        : String.format(Locale.ROOT, "%d MB", Math.max(1, Math.round(bytes / 1e6))), store.modelsDir()));
     }
 
     private static String label(String stage) {
