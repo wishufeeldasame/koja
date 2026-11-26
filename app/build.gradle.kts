@@ -102,9 +102,8 @@ tasks.register<Exec>("jpackage") {
             "--dest", outDir.path,
             "--module-path", (listOf(appJar.get().asFile) + runtimeJars.get().files).joinToString(File.pathSeparator),
             "--module", "koja/koja.ui.KojaApp",
-            "--app-content", bundleDirs.keys.joinToString(",") { it.path },
             "--java-options", "-Dfile.encoding=UTF-8",
             "--java-options", "--enable-native-access=javafx.graphics,javafx.media",
-        )
+        ) + bundleDirs.keys.flatMap { listOf("--app-content", it.path) } // 쉼표 구분은 경로의 쉼표와 섞인다
     }
 }

@@ -69,7 +69,8 @@ public final class WhisperTranscriber implements Transcriber {
                     throw new InterruptedException();
                 }
                 Span span = spans.get(i);
-                long s = Math.min(span.startMs(), end);
+                // VAD 패딩으로 0보다 앞이 오면 헤더 바이트를 보내고 저장 검사(D-048)에서 전사 전체를 잃는다. 파일 범위로 묶는다.
+                long s = Math.max(0, Math.min(span.startMs(), end));
                 long e = Math.min(span.endMs(), end);
                 if (e > s) {
                     SttSegment seg = segment(out.size() + 1, s, e, wav.clip(s, e));
@@ -80,6 +81,7 @@ public final class WhisperTranscriber implements Transcriber {
                 progress.accept((i + 1) / (double) spans.size());
             }
         }
+        progress.accept(1);
         if (Thread.interrupted()) {
             throw new InterruptedException();
         }

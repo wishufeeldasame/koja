@@ -66,7 +66,7 @@ class WhisperTranscriberTest {
             r = t.transcribe(audio, progress::add);
         }
         assertEquals(List.of("1000:auto", "2000:auto", "2000:ko", "500:auto"), calls);
-        assertEquals(List.of(-1.0, 1 / 3.0, 2 / 3.0, 1.0), progress);
+        assertEquals(List.of(-1.0, 1 / 3.0, 2 / 3.0, 1.0, 1.0), progress);
         assertEquals(2, r.segments().size());
 
         SttSegment ko = r.segments().get(0);
@@ -99,7 +99,7 @@ class WhisperTranscriberTest {
             return json("korean", "끝", 0.0, 9.0);
         };
         try (WhisperTranscriber t = new WhisperTranscriber(fake,
-                a -> List.of(new Span(1000, 3000), new Span(2000, 2500)), () -> {})) {
+                a -> List.of(new Span(-30, 0), new Span(1000, 3000), new Span(2000, 2500)), () -> {})) {
             SttResult r = t.transcribe(audio, p -> {});
             assertEquals(List.of(500), lengths);
             assertEquals(1500, r.segments().get(0).endMs());
