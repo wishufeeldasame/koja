@@ -6,6 +6,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 ## Unreleased
 
 ### 추가
+- 5단계 구조화(D-053~D-055, D-073·D-074): `clause` 단위 분할(`koja.core.ClauseSplitter`), 1단계 영상 분석 + 24단위·3분 청크 평탄 1:1 스키마 LLM 호출·재시도·대체 청크(`koja.engine.Structurer`, `StructuringPrompts`), 결정 변환·청크 경계 재질의·`project.json` 투영(`koja.core.StructuredRows`), 절대 규칙 1·D-045 검증기(`koja.core.StructuringValidator`), 결과 파일 `rows.json`(`StageStore.RowsResult`). `Pipeline.run`에 LLM을 주면 5단계로 행을 만든다(처리 창 연결은 W3-4), `LocalEngines.llm`
 - M2 파이프라인 통합: 가져오기 뒤 Silero VAD → 2회 방식 STT(`stt.json`) → 화자 구분(`diar.json`) → 화자 붙이기 → 구간 1개 = 행 1개(`koja.core.SegmentRows`, D-071) → `project.json` 저장 → 검수 화면. 엔진 조립 `koja.engine.LocalEngines`, 행 단계 `stages.rows`(STT·화자 구분을 새로 돌렸을 때만 다시 만듦)
 - 처리 창(`koja.ui.PipelineDialog`): 빠진 로컬 모델 용량 안내 후 다운로드 진행률·취소, 단계(STT / 화자 구분) 진행률·취소, 취소·실패 안내. 처리 메뉴 → 전사·화자 구분 실행(Ctrl/Cmd+R)으로 이어 하기(D-072)
 - AGENTS.md에 에이전트 역할 분담과 병렬 작업 규칙(워커 최대 4개) 추가, 코드 리뷰 기본 리뷰어를 Codex로 명시, OpenCode를 선택 도구로 변경

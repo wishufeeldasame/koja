@@ -7,10 +7,18 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import koja.core.Project.Flag;
 import koja.core.Project.KoCandidate;
+import koja.core.Project.RowKind;
+import koja.core.Project.VideoType;
 import koja.core.Project.SttSegment;
 import koja.core.Project.Word;
 import koja.core.StageStore.DiarResult;
+import koja.core.StageStore.RowsResult;
+import koja.core.StageStore.SpeakerRole;
+import koja.core.StageStore.Unit;
+import koja.core.StageStore.UnitRow;
 import koja.core.StageStore.SttResult;
 import koja.core.StageStore.Turn;
 import org.junit.jupiter.api.Test;
@@ -74,5 +82,46 @@ class StageStoreTest {
             Files.writeString(file, json);
             assertThrows(IOException.class, () -> StageStore.loadDiar(file), json);
         }
+    }
+
+    static RowsResult rows(List<UnitRow> rows, List<Integer> ignored) {
+        List<Unit> units = List.of(
+                new Unit(1, 1, 100, 900, "ko", "S1", "가나", List.of(new Word(100, 900, "가나")), null),
+                new Unit(2, 2, 2_600, 3_400, "ja", "S2", "質問です", List.of(new Word(2_600, 3_400, "質問です")),
+                        new KoCandidate("질문입니다", List.of(new Word(2_600, 3_300, "질문입니다")))),
+                new Unit(3, 2, 3_500, 4_000, "ja", null, "はい", List.of(), null));
+        return new RowsResult(StageStore.CURRENT_VERSION, "llama-test", VideoType.INTERVIEW_JA,
+                Map.of("S1", SpeakerRole.INTERVIEWEE, "S2", SpeakerRole.INTERVIEWER_JA), units, rows, ignored);
+    }
+
+    static final List<UnitRow> ROWS = List.of(new UnitRow("r1", RowKind.LINE, List.of(1), List.of()),
+            new UnitRow("r2", RowKind.QUESTION_JA, List.of(2), List.of()),
+            new UnitRow("r3", RowKind.LINE, List.of(2), List.of(Flag.TEXT_UNSURE)));
+
+    @Test
+    void rowsRoundTrip() throws IOException {
+        Path file = tmp.resolve("한글 폴더").resolve(ProjectFiles.ROWS);
+        StageStore.saveRows(rows(ROWS, List.of(3)), file);
+        assertEquals(rows(ROWS, List.of(3)), StageStore.loadRows(file));
+    }
+
+    @Test
+    void rowsRejectBrokenRuleOneAndKeepExistingFile() throws IOException {
+        Path file = tmp.resolve(ProjectFiles.ROWS);
+        StageStore.saveRows(rows(ROWS, List.of(3)), file);
+        String before = Files.readString(file);
+        assertThrows(IOException.class, () -> StageStore.saveRows(rows(ROWS, List.of()), file));
+        assertThrows(IOException.class, () -> StageStore.saveRows(rows(ROWS, List.of(2, 3)), file));
+        assertThrows(IOException.class, () -> StageStore.saveRows(rows(List.of(new UnitRow("r1", RowKind.QUESTION_JA,
+                List.of(1), List.of()), ROWS.get(1), ROWS.get(2)), List.of(3)), file));
+        assertThrows(IOException.class, () -> StageStore.saveRows(rows(List.of(ROWS.get(0), ROWS.get(1),
+                new UnitRow("r1", RowKind.LINE, List.of(2), List.of())), List.of(3)), file));
+        assertEquals(before, Files.readString(file));
+        Files.writeString(file, before.replaceFirst("\"segId\" : 1", "\"segId\" : 0"));
+        assertThrows(IOException.class, () -> StageStore.loadRows(file));
+        Files.writeString(file, before);
+
+        Files.writeString(file, before.replace("\"ignoredUnitIds\" : [ 3 ]", "\"ignoredUnitIds\" : [ ]"));
+        assertThrows(IOException.class, () -> StageStore.loadRows(file));
     }
 }

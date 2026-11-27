@@ -2,6 +2,7 @@ package koja.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -400,5 +401,67 @@ class PipelineTest {
         assertEquals(List.of("open stt", "close stt"), log);
         assertFalse(Files.exists(file.resolveSibling(ProjectFiles.STT)));
         assertFalse(ProjectStore.load(file).stages().containsKey(Pipeline.STT));
+    }
+
+    LlmClient fakeLlm() {
+        log.add("open llm");
+        StructurerTest.FakeLlm llm = new StructurerTest.FakeLlm() {
+            @Override
+            public void close() {
+                log.add("close llm");
+            }
+        };
+        llm.analysis = "{\"videoType\":\"INTERVIEW_JA\",\"speakers\":[{\"id\":\"S1\",\"role\":\"INTERVIEWEE\"},"
+                + "{\"id\":\"S2\",\"role\":\"INTERVIEWER_JA\"},{\"id\":\"?\",\"role\":\"UNKNOWN\"}]}";
+        llm.chunk = ids -> StructurerTest.items(ids, "LINE", true).replace("{\"id\":3,\"action\":\"LINE\"",
+                "{\"id\":3,\"action\":\"IGNORE\"");
+        return llm;
+    }
+
+    @Test
+    void structuresRowsWithLlmAfterOtherEnginesClosed() throws Exception {
+        Path file = newProject(List.of());
+
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, this::fakeLlm, (s, f) -> {});
+
+        assertEquals(List.of("open stt", "close stt", "open diar", "close diar", "open llm", "close llm"), log);
+        assertEquals(List.of(List.of(1), List.of(2)), p.rows().stream().map(Project.Row::segIds).toList());
+        assertEquals(List.of(3), p.ignoredSegIds());
+        // 자동 판별 유형은 rows.json에만 둔다(사용자 지정값과 구분).
+        assertNull(p.videoType());
+        assertEquals("fake-llm", p.stages().get(Pipeline.ROWS).engine());
+        StageStore.RowsResult rows = StageStore.loadRows(file.resolveSibling(ProjectFiles.ROWS));
+        assertEquals(List.of(3), rows.ignoredUnitIds());
+        assertEquals(Project.VideoType.INTERVIEW_JA, rows.videoType());
+        assertEquals(p, ProjectStore.load(file));
+
+        Project again = Pipeline.run(file, () -> { throw new AssertionError("STT"); },
+                () -> { throw new AssertionError("화자 구분"); }, () -> { throw new AssertionError("LLM"); }, (s, f) -> {});
+        assertEquals(p, again);
+    }
+
+    @Test
+    void failedStructuringKeepsDiarizationDoneForResume() throws Exception {
+        Path file = newProject(List.of());
+
+        assertThrows(IOException.class, () -> Pipeline.run(file, FakeStt::new, FakeDiar::new,
+                () -> { throw new IOException("서버 시작 실패"); }, (s, f) -> {}));
+
+        Project saved = ProjectStore.load(file);
+        assertTrue(saved.stages().get(Pipeline.DIAR).done());
+        assertFalse(saved.stages().containsKey(Pipeline.ROWS));
+        assertEquals(2, saved.speakers().size());
+        assertEquals(List.of(), saved.rows());
+    }
+
+    @Test
+    void missingRowsJsonMakesStructuredRowsPending() throws Exception {
+        Path file = newProject(List.of());
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, this::fakeLlm, (s, f) -> {});
+        assertFalse(Pipeline.rebuildsRows(file, p));
+
+        Files.delete(file.resolveSibling(ProjectFiles.ROWS));
+
+        assertTrue(Pipeline.rebuildsRows(file, p));
     }
 }
