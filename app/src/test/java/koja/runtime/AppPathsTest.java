@@ -78,6 +78,13 @@ class AppPathsTest {
     }
 
     @Test
+    void invalidDataDirOverrideExplainsVariable() {
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir("bad\0path",
+                null, "Mac OS X", null, null, "/home", p -> true));
+        assertTrue(e.getMessage().contains("KOJA_DATA_DIR"), e.getMessage());
+    }
+
+    @Test
     void pipelineLockIgnoresDataDirOverride() {
         assertTrue(AppPaths.pipelineLockFile().endsWith(Path.of("koja", "pipeline.lock")));
     }

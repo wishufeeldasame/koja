@@ -2,6 +2,7 @@ package koja.runtime;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Optional;
@@ -51,20 +52,28 @@ public final class AppPaths {
      * → OS 기본 폴더(Win {@code %LOCALAPPDATA%\koja}, Mac {@code ~/Library/Application Support/koja}) 순서.
      */
     public static Path dataDir() {
-        return DataDirHolder.DIR;
+        Path dir = cachedDataDir;
+        if (dir == null) {
+            // 설치 폴더 쓰기 검사는 파일을 만들어 보므로 한 번만 한다. 잘못된 KOJA_DATA_DIR은 캐시하지 않고 매번 알린다.
+            dir = dataDir(System.getenv(ENV_DATA_DIR), System.getProperty("jpackage.app-path"),
+                    System.getProperty("os.name"), System.getenv("LOCALAPPDATA"), System.getenv("XDG_DATA_HOME"),
+                    System.getProperty("user.home"), AppPaths::isWritableDirectory);
+            cachedDataDir = dir;
+        }
+        return dir;
     }
 
-    // 설치 폴더 쓰기 검사는 파일을 만들어 보므로 한 번만 한다.
-    private static final class DataDirHolder {
-        static final Path DIR = dataDir(System.getenv(ENV_DATA_DIR), System.getProperty("jpackage.app-path"),
-                System.getProperty("os.name"), System.getenv("LOCALAPPDATA"), System.getenv("XDG_DATA_HOME"),
-                System.getProperty("user.home"), AppPaths::isWritableDirectory);
-    }
+    private static volatile Path cachedDataDir;
 
     static Path dataDir(String override, String appPath, String osName, String localAppData, String xdgDataHome,
             String userHome, Predicate<Path> writable) {
         if (override != null && !override.isBlank()) {
-            return Path.of(override.trim()).toAbsolutePath().normalize();
+            try {
+                return Path.of(override.trim()).toAbsolutePath().normalize();
+            } catch (InvalidPathException e) {
+                throw new IllegalStateException("환경 변수 " + ENV_DATA_DIR + "의 경로가 잘못됐습니다: " + override
+                        + " (따옴표 없이 폴더 경로만 적으세요)", e);
+            }
         }
         // 윈도우 사용자별 설치(%LOCALAPPDATA%\koja, 또는 설치 창에서 고른 F:\koja)는 앱과 받은 파일을 한 폴더에 둔다.
         // Program Files처럼 쓸 수 없는 곳을 골랐으면 OS 기본 폴더로 간다.

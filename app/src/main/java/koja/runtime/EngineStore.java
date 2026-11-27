@@ -9,12 +9,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -129,19 +130,20 @@ public final class EngineStore implements AutoCloseable {
      * 환경 변수로 실행 파일을 지정했으면 그것이 먼저 쓰이므로 받지 않는다(D-078).
      */
     public static List<Engine> required(boolean stt, boolean llm) {
-        return required(stt, llm, System.getProperty("os.name"), System.getenv());
+        // System.getenv(name)은 윈도우에서 이름 대소문자를 가리지 않는다. 서버 실행 쪽과 같은 조회를 쓴다.
+        return required(stt, llm, System.getProperty("os.name"), System::getenv);
     }
 
-    static List<Engine> required(boolean stt, boolean llm, String osName, Map<String, String> env) {
+    static List<Engine> required(boolean stt, boolean llm, String osName, Function<String, String> env) {
         if (!AppPaths.isWindows(osName)) {
             return List.of();
         }
         Set<Engine> engines = new LinkedHashSet<>();
-        if (stt && isBlank(env.get(WhisperServer.ENV_EXECUTABLE))) {
+        if (stt && isBlank(env.apply(WhisperServer.ENV_EXECUTABLE))) {
             engines.add(WHISPER);
             engines.add(CUDA);
         }
-        if (llm && isBlank(env.get(LlamaServer.ENV_EXECUTABLE))) {
+        if (llm && isBlank(env.apply(LlamaServer.ENV_EXECUTABLE))) {
             engines.add(LLAMA);
             engines.add(CUDA);
         }
@@ -201,17 +203,32 @@ public final class EngineStore implements AutoCloseable {
     }
 
     /**
-     * 빠진 엔진을 받아 설치한다. 취소되면 받던 zip은 {@code .part}로 남아 다음에 이어 받는다.
-     * 다 설치됐으면 그 엔진들의 zip을 지운다. 이미 설치돼 있어도 부르면 지난번에 못 지운 zip을 지운다.
-     * 다른 엔진(예: llama)의 받다 만 {@code .part}는 남긴다.
+     * 사용자가 확인한 엔진 중 빠진 것만 받아 설치한다. 취소되면 받던 zip은 {@code .part}로 남아 다음에 이어 받는다.
+     * 끝나면 {@link #cleanup}으로 설치된 엔진의 zip을 지운다.
      */
     public void install(List<Engine> engines, ProgressListener listener, CancelToken token) throws IOException {
         List<Engine> todo = missing(engines);
         if (!todo.isEmpty()) {
             fetchAndUnpack(todo, listener, token);
         }
+        cleanup(engines);
+    }
+
+    /**
+     * 설치된 엔진의 zip·라이선스 파일을 지운다. 아직 설치 안 된 엔진이 쓰는 파일과 다른 엔진이 받다 만 {@code .part}는 남긴다.
+     * 처리할 때마다 불러 지난번에 못 지운 zip(앱 종료·파일 잠금)을 다시 지운다.
+     */
+    public void cleanup(List<Engine> engines) {
+        Set<ModelSpec> keep = new HashSet<>(downloadsOf(missing(engines)));
         for (ModelSpec spec : downloadsOf(engines)) {
-            Files.deleteIfExists(downloads.pathOf(spec));
+            if (keep.contains(spec)) {
+                continue;
+            }
+            try {
+                Files.deleteIfExists(downloads.pathOf(spec));
+            } catch (IOException e) {
+                // 백신 등이 잠가 못 지워도 엔진은 설치돼 있으니 처리는 계속하고 다음 처리 때 다시 지운다.
+            }
         }
     }
 

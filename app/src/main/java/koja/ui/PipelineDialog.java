@@ -76,8 +76,17 @@ final class PipelineDialog {
                     + "가 프로젝트 폴더에 없습니다. 파일 → 가져오기로 영상을 가져오세요.");
             return;
         }
-        ModelStore store = new ModelStore(AppPaths.modelsDir());
-        EngineStore engines = new EngineStore(AppPaths.enginesDir());
+        Path modelsDir;
+        Path enginesDir;
+        try {
+            modelsDir = AppPaths.modelsDir();
+            enginesDir = AppPaths.enginesDir();
+        } catch (IllegalStateException e) {
+            alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", e.getMessage());
+            return;
+        }
+        ModelStore store = new ModelStore(modelsDir);
+        EngineStore engines = new EngineStore(enginesDir);
         List<ModelSpec> missing = LocalEngines.missing(store, stt, diar);
         List<ModelSpec> ensure = LocalEngines.toEnsure(store, stt, diar);
         List<EngineStore.Engine> requiredEngines = EngineStore.required(stt, false);
@@ -116,8 +125,9 @@ final class PipelineDialog {
                     updateMessage("엔진 받는 중: " + missingEngines.stream().map(EngineStore.Engine::dir)
                             .collect(Collectors.joining(", ")));
                 }
-                // 설치돼 있어도 불러 지난번에 못 지운 zip을 정리한다.
-                engines.install(requiredEngines, (done, unused) -> updateProgress(done, total), token);
+                // 확인창에서 보인 엔진만 받는다. 정리는 필요한 엔진 전체를 보고 지난번에 못 지운 zip을 지운다.
+                engines.install(missingEngines, (done, unused) -> updateProgress(done, total), token);
+                engines.cleanup(requiredEngines);
                 long before = engineBytes;
                 for (int i = 0; i < ensure.size(); i++) {
                     ModelSpec spec = ensure.get(i);

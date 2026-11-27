@@ -21,6 +21,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import koja.runtime.EngineStore.Engine;
@@ -52,7 +53,7 @@ class EngineStoreTest {
 
     @Test
     void onlyWindowsDownloadsEnginesAndCudaIsShared() {
-        Map<String, String> none = Map.of();
+        Function<String, String> none = name -> null;
         assertEquals(List.of(EngineStore.WHISPER, EngineStore.CUDA), EngineStore.required(true, false, "Windows 11", none));
         assertEquals(List.of(EngineStore.LLAMA, EngineStore.CUDA), EngineStore.required(false, true, "Windows 11", none));
         assertEquals(List.of(EngineStore.WHISPER, EngineStore.CUDA, EngineStore.LLAMA),
@@ -60,7 +61,7 @@ class EngineStoreTest {
         assertEquals(List.of(), EngineStore.required(true, true, "Mac OS X", none));
         // 환경 변수로 지정한 실행 파일이 먼저 쓰이므로 받지 않는다.
         assertEquals(List.of(EngineStore.LLAMA, EngineStore.CUDA), EngineStore.required(true, true, "Windows 11",
-                Map.of("KOJA_WHISPER_SERVER", "C:\\whisper\\whisper-server.exe")));
+                Map.of("KOJA_WHISPER_SERVER", "C:\\whisper\\whisper-server.exe")::get));
         // whisper와 cuda는 같은 zip이라 한 번만 받는다.
         assertEquals(735_571_214L, EngineStore.downloadSize(List.of(EngineStore.WHISPER, EngineStore.CUDA)));
     }
