@@ -89,4 +89,12 @@ class ClauseSplitterTest {
         List<Unit> units = ClauseSplitter.split(List.of(s), turns);
         assertEquals(java.util.Arrays.asList("S1", "S3"), units.stream().map(Unit::speakerId).toList());
     }
+
+    @Test
+    void wordSpeakerCountsOverlapOnce() {
+        // S1 턴 둘이 같은 200ms를 덮어도 한 번만 센다. 합집합 300ms < S2 450ms.
+        List<Word> words = List.of(new Word(0, 300, "가"), new Word(300, 750, "나"));
+        List<Turn> turns = List.of(new Turn(0, 300, "S1"), new Turn(100, 300, "S1"), new Turn(300, 750, "S2"));
+        assertEquals("S2", ClauseSplitter.wordSpeaker(words, turns));
+    }
 }

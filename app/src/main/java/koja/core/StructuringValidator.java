@@ -70,11 +70,13 @@ public final class StructuringValidator {
             got.add(n.isObject() && n.path("id").isInt() ? n.get("id").asInt() : null);
         }
         if (!got.equals(ids)) {
+            // id가 없거나 정수가 아닌 항목은 null이라 TreeSet에 넣지 않는다(NPE면 청크 재시도 대신 실행 전체가 멈춘다).
+            List<Integer> valid = got.stream().filter(Objects::nonNull).toList();
             Set<Integer> missing = new TreeSet<>(ids);
-            missing.removeAll(got);
+            missing.removeAll(valid);
             Set<Integer> extra = new TreeSet<>();
-            for (Integer i : got) {
-                if (i != null && !ids.contains(i)) {
+            for (Integer i : valid) {
+                if (!ids.contains(i)) {
                     extra.add(i);
                 }
             }

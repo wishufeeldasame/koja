@@ -451,6 +451,7 @@ class PipelineTest {
         assertTrue(saved.stages().get(Pipeline.DIAR).done());
         assertFalse(saved.stages().containsKey(Pipeline.ROWS));
         assertEquals(2, saved.speakers().size());
+        assertEquals(List.of(), saved.rows());
     }
 
     @Test

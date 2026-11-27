@@ -103,6 +103,7 @@ class StructuringValidatorTest {
         assertTrue(parse(OK.replace("\"id\": 3", "\"id\": 9").replace("\"id\": 5", "\"id\": 3")
                 .replace("\"id\": 9", "\"id\": 5"), Set.of(3)).error().contains("순서"));
         assertTrue(parse("{\"items\": [", Set.of(3)).error().contains("JSON"));
+        assertTrue(parse("{\"items\": [{\"id\": \"x\"}, {}]}", Set.of(3)).error().contains("빠짐 [3, 4, 5]"));
         assertTrue(parse("[]", Set.of(3)).error().contains("items"));
         assertTrue(parse(OK.replace("\"newRow\": false", "\"newRow\": \"no\""), Set.of(3)).error().contains("newRow"));
         assertTrue(parse(OK.replace("TEXT_UNSURE\", \"TEXT", "TEXT_UNSURE\", \"BAD"), Set.of(3)).error().contains("flags"));

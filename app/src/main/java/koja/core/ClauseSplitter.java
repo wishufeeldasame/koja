@@ -130,25 +130,36 @@ public final class ClauseSplitter {
                 || h >= 24;
     }
 
-    /**
-     * 단어마다 턴과 겹친 시간을 화자별로 더해 가장 긴 화자. 없으면 null.
-     * shortcut: 같은 화자 턴끼리 겹치면 두 번 센다. diar.json 턴은 화자별로 겹치지 않아(추정) 그대로 둔다.
-     */
+    /** 단어 구간과 턴이 겹친 시간의 합집합 길이가 가장 긴 화자. 겹친 단어·같은 화자 턴의 겹침은 한 번만 센다(D-064). 없으면 null. */
     static String wordSpeaker(List<Word> words, List<Turn> turns) {
-        java.util.Map<String, Long> total = new java.util.LinkedHashMap<>();
+        java.util.Map<String, List<long[]>> spans = new java.util.LinkedHashMap<>();
         for (Word w : words) {
             for (Turn t : turns) {
-                long ov = Math.min(w.endMs(), t.endMs()) - Math.max(w.startMs(), t.startMs());
-                if (ov > 0) {
-                    total.merge(t.speaker(), ov, Long::sum);
+                long from = Math.max(w.startMs(), t.startMs());
+                long to = Math.min(w.endMs(), t.endMs());
+                if (to > from) {
+                    spans.computeIfAbsent(t.speaker(), k -> new ArrayList<>()).add(new long[] { from, to });
                 }
             }
         }
         String who = null;
         long best = 0;
-        for (java.util.Map.Entry<String, Long> e : total.entrySet()) {
-            if (e.getValue() > best) {
-                best = e.getValue();
+        for (java.util.Map.Entry<String, List<long[]>> e : spans.entrySet()) {
+            List<long[]> xs = e.getValue();
+            xs.sort(java.util.Comparator.comparingLong(a -> a[0]));
+            long total = 0;
+            long curFrom = xs.getFirst()[0];
+            long curTo = xs.getFirst()[1];
+            for (long[] x : xs.subList(1, xs.size())) {
+                if (x[0] > curTo) {
+                    total += curTo - curFrom;
+                    curFrom = x[0];
+                }
+                curTo = Math.max(curTo, x[1]);
+            }
+            total += curTo - curFrom;
+            if (total > best) {
+                best = total;
                 who = e.getKey();
             }
         }

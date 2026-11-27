@@ -97,7 +97,8 @@ public final class Pipeline {
         Project project = ProjectStore.load(projectFile);
 
         SttResult sttResult;
-        if (done(project, STT, sttFile)) {
+        boolean newStt = !done(project, STT, sttFile);
+        if (!newStt) {
             sttResult = StageStore.loadStt(sttFile);
         } else {
             // 결과 파일을 쓰기 전에 옛 완료 표시를 지워 둔다. 새 stt.json 저장 뒤 project.json 저장 전에 멈추면
@@ -135,18 +136,24 @@ public final class Pipeline {
         project = withSpeakers(project, sttResult, diarResult, newDiar);
         if (newDiar || !rowsDone(project, projectFile)) {
             project = llm == null ? withRows(withStage(project, ROWS, ROWS_ENGINE))
-                    : structure(project, projectFile, diarResult, llm, dir.resolve(ProjectFiles.ROWS), listener);
+                    : structure(project, projectFile, newStt || newDiar, diarResult, llm, dir.resolve(ProjectFiles.ROWS),
+                            listener);
         }
         ProjectStore.save(project, projectFile);
         return project;
     }
 
     /** 5단계: 단위 분할(D-054) → LLM 구조화 → rows.json → project.json 행·무시 목록 투영(D-073). */
-    private static Project structure(Project p, Path projectFile, DiarResult diar, Opener<? extends LlmClient> llm,
-            Path rowsFile, Listener listener) throws IOException, InterruptedException {
+    private static Project structure(Project p, Path projectFile, boolean fresh, DiarResult diar,
+            Opener<? extends LlmClient> llm, Path rowsFile, Listener listener) throws IOException, InterruptedException {
         checkInterrupt();
-        // 구조화는 몇 분 걸린다. 여기서 멈춰도 다음 실행이 화자 구분을 다시 하지 않게 화자표·완료 표시를 먼저 저장한다.
-        ProjectStore.save(p, projectFile);
+        if (fresh) {
+            // 구조화는 몇 분 걸린다. 여기서 멈춰도 다음 실행이 화자 구분을 다시 하지 않게 화자표·완료 표시를 먼저 저장한다.
+            // 옛 행은 이번 STT·화자 구분의 구간 id·화자표와 맞지 않으므로 같이 저장하지 않는다(rows는 이미 미완료 표시).
+            p = new Project(p.version(), p.source(), p.meta(), p.videoType(), p.speakers(), p.sttSegments(), List.of(),
+                    List.of(), p.glossary(), p.stages());
+            ProjectStore.save(p, projectFile);
+        }
         Map<String, String> ids = speakerIds(diar.turns());
         List<Turn> turns = diar.turns().stream().map(t -> new Turn(t.startMs(), t.endMs(), ids.get(t.speaker()))).toList();
         List<StageStore.Unit> units = ClauseSplitter.split(p.sttSegments(), turns);
