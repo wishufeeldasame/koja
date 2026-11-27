@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -28,12 +29,13 @@ import koja.core.ProjectStore;
 import koja.engine.LocalEngines;
 import koja.engine.Pipeline;
 import koja.runtime.AppPaths;
+import koja.runtime.EngineStore;
 import koja.runtime.ModelStore;
 import koja.runtime.ModelStore.CancelToken;
 import koja.runtime.ModelStore.ModelSpec;
 
 /**
- * M2 처리 창: 빠진 모델을 받고(처음 한 번) STT → 화자 구분 → 행 만들기를 돌린다. FX 스레드에서 부른다.
+ * M2 처리 창: 빠진 모델·엔진(윈도우)을 받고(처음 한 번) STT → 화자 구분 → 행 만들기를 돌린다. FX 스레드에서 부른다.
  * 끝나면 onDone(저장된 프로젝트)을, 취소·실패면 안내한 뒤 onStopped를 부른다. 완료된 단계는 남아 다시 실행하면 이어서 한다.
  */
 final class PipelineDialog {
@@ -74,11 +76,25 @@ final class PipelineDialog {
                     + "가 프로젝트 폴더에 없습니다. 파일 → 가져오기로 영상을 가져오세요.");
             return;
         }
-        ModelStore store = new ModelStore(AppPaths.modelsDir());
+        Path modelsDir;
+        Path enginesDir;
+        try {
+            modelsDir = AppPaths.modelsDir();
+            enginesDir = AppPaths.enginesDir();
+        } catch (IllegalStateException e) {
+            alert(owner, Alert.AlertType.ERROR, "처리할 수 없습니다", e.getMessage());
+            return;
+        }
+        ModelStore store = new ModelStore(modelsDir);
+        EngineStore engines = new EngineStore(enginesDir);
         List<ModelSpec> missing = LocalEngines.missing(store, stt, diar);
         List<ModelSpec> ensure = LocalEngines.toEnsure(store, stt, diar);
-        if (!missing.isEmpty() && !confirmDownload(owner, store, missing)) {
+        List<EngineStore.Engine> requiredEngines = EngineStore.required(stt, false);
+        List<EngineStore.Engine> missingEngines = engines.missing(requiredEngines);
+        if ((!missing.isEmpty() || !missingEngines.isEmpty())
+                && !confirmDownload(owner, store, missing, engines, missingEngines)) {
             store.close();
+            engines.close();
             return;
         }
         CancelToken token = new CancelToken();
@@ -91,7 +107,7 @@ final class PipelineDialog {
             @Override
             protected Project call() throws Exception {
                 // Pipeline 잠금은 이 JVM 안에서만 통한다. 앱을 두 번 띄워도 GPU 단계가 겹치지 않게 OS 파일 잠금을 건다(절대 규칙 5).
-                Path lockFile = AppPaths.dataDir().resolve("pipeline.lock");
+                Path lockFile = AppPaths.pipelineLockFile();
                 Files.createDirectories(lockFile.getParent());
                 try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
                         FileLock lock = channel.tryLock()) {
@@ -103,8 +119,16 @@ final class PipelineDialog {
             }
 
             private Project process() throws Exception {
-                long total = ensure.stream().mapToLong(ModelSpec::expectedSize).sum();
-                long before = 0;
+                long engineBytes = EngineStore.downloadSize(missingEngines);
+                long total = engineBytes + ensure.stream().mapToLong(ModelSpec::expectedSize).sum();
+                if (!missingEngines.isEmpty()) {
+                    updateMessage("엔진 받는 중: " + missingEngines.stream().map(EngineStore.Engine::dir)
+                            .collect(Collectors.joining(", ")));
+                }
+                // 확인창에서 보인 엔진만 받는다. 정리는 필요한 엔진 전체를 보고 지난번에 못 지운 zip을 지운다.
+                engines.install(missingEngines, (done, unused) -> updateProgress(done, total), token);
+                engines.cleanup(requiredEngines);
+                long before = engineBytes;
                 for (int i = 0; i < ensure.size(); i++) {
                     ModelSpec spec = ensure.get(i);
                     updateMessage("모델 확인·받는 중 (" + (i + 1) + "/" + ensure.size() + "): " + spec.relativePath());
@@ -149,11 +173,13 @@ final class PipelineDialog {
         task.setOnSucceeded(e -> {
             dialog.close();
             store.close();
+            engines.close();
             onDone.accept(task.getValue());
         });
         task.setOnFailed(e -> {
             dialog.close();
             store.close();
+            engines.close();
             Throwable t = task.getException();
             // 모델 해시 검사 중 interrupt는 ClosedByInterruptException 등으로 올 수 있어 사용자가 누른 취소를 기준으로 본다.
             boolean cancelled = token.isCancelled() || t instanceof InterruptedException || t instanceof CancellationException;
@@ -186,12 +212,29 @@ final class PipelineDialog {
         return alert.showAndWait().filter(ButtonType.OK::equals).isPresent();
     }
 
-    private static boolean confirmDownload(Window owner, ModelStore store, List<ModelSpec> missing) {
-        long bytes = missing.stream().mapToLong(ModelSpec::expectedSize).sum();
-        return confirm(owner, "모델 다운로드", String.format(Locale.ROOT,
-                "처음 한 번 로컬 모델 %d개(약 %s)를 받습니다.%n저장 위치: %s%n중간에 취소해도 받은 만큼은 남아 다음에 이어 받습니다.",
-                missing.size(), bytes >= 1e9 ? String.format(Locale.ROOT, "%.1f GB", bytes / 1e9)
-                        : String.format(Locale.ROOT, "%d MB", Math.max(1, Math.round(bytes / 1e6))), store.modelsDir()));
+    private static boolean confirmDownload(Window owner, ModelStore store, List<ModelSpec> missing,
+            EngineStore engines, List<EngineStore.Engine> missingEngines) {
+        StringBuilder text = new StringBuilder();
+        if (!missing.isEmpty()) {
+            text.append(String.format(Locale.ROOT, "처음 한 번 로컬 모델 %d개(약 %s)를 받습니다.%n저장 위치: %s%n",
+                    missing.size(), size(missing.stream().mapToLong(ModelSpec::expectedSize).sum()), store.modelsDir()));
+        }
+        // 엔진은 공식 릴리스를 사용자가 직접 받는 것이라 라이선스를 받기 전에 알린다(D-078).
+        if (!missingEngines.isEmpty()) {
+            text.append(String.format(Locale.ROOT,
+                    "로컬 AI 엔진(%s, 약 %s)을 공식 릴리스에서 받습니다.%n"
+                            + "라이선스: whisper.cpp·llama.cpp MIT, NVIDIA CUDA 런타임은 NVIDIA CUDA Toolkit EULA%n"
+                            + "저장 위치: %s%n",
+                    missingEngines.stream().map(EngineStore.Engine::dir).collect(Collectors.joining(", ")),
+                    size(EngineStore.downloadSize(missingEngines)), engines.enginesDir()));
+        }
+        text.append("중간에 취소해도 받은 만큼은 남아 다음에 이어 받습니다.");
+        return confirm(owner, "모델·엔진 다운로드", text.toString());
+    }
+
+    private static String size(long bytes) {
+        return bytes >= 1e9 ? String.format(Locale.ROOT, "%.1f GB", bytes / 1e9)
+                : String.format(Locale.ROOT, "%d MB", Math.max(1, Math.round(bytes / 1e6)));
     }
 
     private static String label(String stage) {

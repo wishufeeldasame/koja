@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,6 +54,79 @@ class AppPathsTest {
         assertEquals(
                 home.resolve(".local").resolve("share").resolve("koja").resolve("models"),
                 AppPaths.modelsDir("Linux", null, null, home.toString()));
+    }
+
+    @Test
+    void dataDirPrefersOverrideThenParentOfWindowsProgramDir(@TempDir Path temp) {
+        Path local = temp.resolve("AppData").resolve("Local");
+        Path root = temp.resolve("F 드라이브").resolve("koja");
+        String launcher = root.resolve("app").resolve("koja.exe").toString();
+        Path override = temp.resolve("내 데이터");
+        assertEquals(override, AppPaths.dataDir(override.toString(), launcher, "Windows 11", local.toString(), null,
+                temp.toString(), p -> true));
+        // 설치 폴더(app\)는 제거·업그레이드 때 통째로 지워져 그 부모에 둔다.
+        assertEquals(root, AppPaths.dataDir(null, launcher, "Windows 11", local.toString(), null,
+                temp.toString(), p -> true));
+        // app\ 없이 고른 다른 폴더는 OS 기본 폴더.
+        assertEquals(local.resolve("koja"), AppPaths.dataDir(null, root.resolve("koja.exe").toString(), "Windows 11",
+                local.toString(), null, temp.toString(), p -> true));
+        // 설치 폴더가 %LOCALAPPDATA%\koja 자체면 기본 폴더도 지워질 자리라 옆 koja-data.
+        assertEquals(local.resolve("koja-data"), AppPaths.dataDir(null, local.resolve("koja").resolve("koja.exe")
+                .toString(), "Windows 11", local.toString(), null, temp.toString(), p -> true));
+        // Program Files처럼 쓸 수 없는 설치 폴더와 개발 실행(jpackage.app-path 없음)은 %LOCALAPPDATA%\koja.
+        assertEquals(local.resolve("koja"), AppPaths.dataDir(" ", launcher, "Windows 11", local.toString(), null,
+                temp.toString(), p -> false));
+        assertEquals(local.resolve("koja"), AppPaths.dataDir(null, null, "Windows 11", local.toString(), null,
+                temp.toString(), p -> true));
+        // 맥 .app은 읽기 전용으로 두고 Application Support를 쓴다.
+        assertEquals(temp.resolve("Library").resolve("Application Support").resolve("koja"),
+                AppPaths.dataDir(null, "/Applications/koja.app/Contents/MacOS/koja", "Mac OS X", null, null,
+                        temp.toString(), p -> true));
+    }
+
+    @Test
+    void invalidDataDirOverrideExplainsVariable() {
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir("bad\0path",
+                null, "Mac OS X", null, null, "/home", p -> true));
+        assertTrue(e.getMessage().contains("KOJA_DATA_DIR"), e.getMessage());
+    }
+
+    @Test
+    void dataDirOverrideInsideWindowsInstallDirIsRejected(@TempDir Path temp) {
+        Path install = temp.resolve("koja-app");
+        String launcher = install.resolve("koja.exe").toString();
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir(
+                install.resolve("데이터").toString(), launcher, "Windows 11", temp.toString(), null, temp.toString(),
+                p -> true));
+        assertTrue(e.getMessage().contains("설치 폴더"), e.getMessage());
+    }
+
+    @Test
+    void installDirInsideDataModelsOrEnginesOverlaps(@TempDir Path temp) {
+        Path data = temp.resolve("koja");
+        assertTrue(AppPaths.overlaps(data, data.resolve("engines")));
+        assertTrue(AppPaths.overlaps(data, data.resolve("models").resolve("앱")));
+        assertTrue(AppPaths.overlaps(data.resolve("하위"), data));
+        assertFalse(AppPaths.overlaps(data, data.resolve("app")));
+        assertFalse(AppPaths.overlaps(data, temp.resolve("koja-app")));
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir(data.toString(),
+                data.resolve("engines").resolve("koja.exe").toString(), "Windows 11", temp.toString(), null,
+                temp.toString(), p -> true));
+        assertTrue(e.getMessage().contains("설치 폴더"), e.getMessage());
+    }
+
+    @Test
+    void pipelineLockIgnoresDataDirOverride() {
+        assertTrue(AppPaths.pipelineLockFile().endsWith(Path.of("koja", "pipeline.lock")));
+    }
+
+    @Test
+    void writableProbeLeavesNoFile(@TempDir Path temp) throws IOException {
+        assertTrue(AppPaths.isWritableDirectory(temp));
+        try (Stream<Path> files = Files.list(temp)) {
+            assertEquals(0, files.count());
+        }
+        assertFalse(AppPaths.isWritableDirectory(temp.resolve("없는 폴더")));
     }
 
     @Test

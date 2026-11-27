@@ -43,25 +43,27 @@ jobs:
         shell: bash
         run: scripts/bundle_ffmpeg.sh app/build/ffmpeg
 
-      # 맥은 소스 빌드, 윈도우는 735MB를 받는다. ffmpeg와 같은 방식으로 스크립트 해시로 캐시한다(D-059). cuda/는 윈도우만 생긴다.
+      # 맥만 whisper·llama를 번들한다. 윈도우는 앱이 처음 실행할 때 engines\에 받는다(D-077).
+      # 맥 소스 빌드는 몇 분 걸려 ffmpeg와 같은 방식으로 스크립트 해시로 캐시한다(D-059).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: runner.os == 'macOS'
         with:
-          path: |
-            app/build/whisper
-            app/build/cuda
+          path: app/build/whisper
           key: whisper-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bundle_whisper.sh') }}
 
-      - name: whisper-server 받기·빌드·검사
+      - name: whisper-server 받기·빌드·검사 (맥)
+        if: runner.os == 'macOS'
         shell: bash
         run: scripts/bundle_whisper.sh app/build/whisper app/build/cuda
 
-      # 맥은 16MB, 윈도우는 358MB를 받는다. 공유 app/build/cuda는 위 whisper 캐시에 포함되므로 llama 폴더만 캐시한다(D-060, D-069).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: runner.os == 'macOS'
         with:
           path: app/build/llama
           key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bundle_llama.sh') }}
 
-      - name: llama-server 받기·검사
+      - name: llama-server 받기·검사 (맥)
+        if: runner.os == 'macOS'
         shell: bash
         run: scripts/bundle_llama.sh app/build/llama app/build/cuda
 
@@ -106,32 +108,16 @@ jobs:
           Start-Process msiexec -Wait -ArgumentList '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$dir`""
           $launcher = Get-ChildItem $dir -Recurse -Filter koja.exe | Select-Object -First 1
           if (-not $launcher) { throw "koja.exe 없음" }
+          # 받은 모델·엔진은 설치 폴더(제거 때 통째로 지워짐) 밖 %LOCALAPPDATA%\koja에 둔다(D-076).
+          if ($launcher.Directory.Name -ne 'koja-app') { throw "설치 폴더가 koja-app이 아님: $($launcher.DirectoryName)" }
           $ffmpeg = Join-Path $launcher.DirectoryName 'ffmpeg\ffmpeg.exe'
           if (-not (Test-Path $ffmpeg)) { Get-ChildItem $dir -Recurse | Select-Object -ExpandProperty FullName; throw "ffmpeg.exe 없음: $ffmpeg" }
           & $ffmpeg -hide_banner -version | Select-Object -First 1
-          # 앱이 찾는 위치(koja.runtime.WhisperServer): whisper\ 와 그 옆 cuda\ (D-060). GPU가 없어 --help로 실행만 본다.
-          $whisper = Join-Path $launcher.DirectoryName 'whisper\whisper-server.exe'
-          $cuda = Join-Path $launcher.DirectoryName 'cuda'
-          foreach ($f in @($whisper, (Join-Path $cuda 'cudart64_12.dll'), (Join-Path $cuda 'cublas64_12.dll'), (Join-Path $cuda 'cublasLt64_12.dll'))) {
-            if (-not (Test-Path $f)) { throw "없음: $f" }
+          # whisper·llama·cuda는 설치파일에 넣지 않고 앱이 처음 실행할 때 받는다(D-077).
+          foreach ($d in @('whisper', 'llama', 'cuda')) {
+            $p = Join-Path $launcher.DirectoryName $d
+            if (Test-Path $p) { throw "엔진 폴더가 설치파일에 들어 있음: $p" }
           }
-          $env:PATH = "$cuda;$env:PATH"
-          # 사용법이 stderr로 나온다. Actions pwsh 기본(Stop)에서 stderr 줄이 오류로 멈추지 않게 한다.
-          $ErrorActionPreference = 'Continue'
-          $help = (& $whisper --help 2>&1 | Out-String)
-          if ($help -notmatch '--inference-path') { throw "whisper-server --help 실패: $help" }
-          # 앱이 찾는 위치(koja.runtime.LlamaServer): llama\ 와 그 옆 cuda\ (D-060, D-065, D-069).
-          $llama = Join-Path $launcher.DirectoryName 'llama\llama-server.exe'
-          foreach ($f in @($llama, (Join-Path $launcher.DirectoryName 'llama\NOTICE.txt'), (Join-Path $launcher.DirectoryName 'llama\LICENSE'), (Join-Path $launcher.DirectoryName 'llama\LICENSE-LLVM-OpenMP'))) {
-            if (-not (Test-Path $f)) { throw "없음: $f" }
-          }
-          foreach ($dup in @('cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll')) {
-            $dupPath = Join-Path $launcher.DirectoryName "llama\$dup"
-            if (Test-Path $dupPath) { throw "CUDA DLL이 llama 폴더에 중복됨: $dupPath" }
-          }
-          $llamaVer = (& $llama --version 2>&1 | Out-String)
-          if ($llamaVer -notmatch 'build 12655') { throw "llama-server --version 실패: $llamaVer" }
-          $llamaVer -split "`r?`n" | Select-Object -First 2
           foreach ($f in @('sherpa-onnx-jni.dll', 'onnxruntime.dll', 'NOTICE.txt', 'LICENSE-sherpa-onnx.txt', 'LICENSE-onnxruntime.txt', 'ThirdPartyNotices-onnxruntime.txt')) {
             $p = Join-Path $launcher.DirectoryName "sherpa-native\$f"
             if (-not (Test-Path $p)) { throw "sherpa-native 파일 없음: $p" }

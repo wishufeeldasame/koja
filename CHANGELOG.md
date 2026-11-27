@@ -7,6 +7,8 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 
 ### 추가
 - 5단계 구조화(D-053~D-055, D-073·D-074): `clause` 단위 분할(`koja.core.ClauseSplitter`), 1단계 영상 분석 + 24단위·3분 청크 평탄 1:1 스키마 LLM 호출·재시도·대체 청크(`koja.engine.Structurer`, `StructuringPrompts`), 결정 변환·청크 경계 재질의·`project.json` 투영(`koja.core.StructuredRows`), 절대 규칙 1·D-045 검증기(`koja.core.StructuringValidator`), 결과 파일 `rows.json`(`StageStore.RowsResult`). `Pipeline.run`에 LLM을 주면 5단계로 행을 만든다(처리 창 연결은 W3-4), `LocalEngines.llm`
+- 윈도우 엔진 온디맨드 설치(`koja.runtime.EngineStore`): whisper-server·llama-server·CUDA 런타임을 처음 전사할 때 공식 릴리스 zip에서 받아 이어 받기·SHA-256·원자적 설치로 데이터 폴더 `engines/`에 둔다. 처리 창 확인에 엔진 용량·라이선스 표시(D-077, D-078)
+- 환경 변수 `KOJA_DATA_DIR`로 데이터 폴더(모델·엔진) 바꾸기(D-076)
 - M2 파이프라인 통합: 가져오기 뒤 Silero VAD → 2회 방식 STT(`stt.json`) → 화자 구분(`diar.json`) → 화자 붙이기 → 구간 1개 = 행 1개(`koja.core.SegmentRows`, D-071) → `project.json` 저장 → 검수 화면. 엔진 조립 `koja.engine.LocalEngines`, 행 단계 `stages.rows`(STT·화자 구분을 새로 돌렸을 때만 다시 만듦)
 - 처리 창(`koja.ui.PipelineDialog`): 빠진 로컬 모델 용량 안내 후 다운로드 진행률·취소, 단계(STT / 화자 구분) 진행률·취소, 취소·실패 안내. 처리 메뉴 → 전사·화자 구분 실행(Ctrl/Cmd+R)으로 이어 하기(D-072)
 - AGENTS.md에 에이전트 역할 분담과 병렬 작업 규칙(워커 최대 4개) 추가, 코드 리뷰 기본 리뷰어를 Codex로 명시, OpenCode를 선택 도구로 변경
@@ -45,6 +47,8 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 설치파일에 `llama-server`(`b12655`) 번들·CI·jpackage 연결 및 윈도우 공유 `cuda/` 통합(`scripts/bundle_llama.sh`, `koja.runtime.LlamaServer`, `app/build.gradle.kts`, `.github/workflows/build.yml`): `bundle_llama.sh` 2인자(`OUT`, `CUDA_OUT`) 구조로 윈도우 CUDA 런타임 DLL 중복 제거 및 기존 `cuda/` 재사용, `LlamaServer.processEnvironment`의 윈도우 형제 `cuda/` 대소문자 보존 `PATH` 전치, CI 캐시 분리 및 `.dmg`/`.msi` 안 `llama/llama-server`·고지 검사 추가(D-069). 통합 `.msi` 윈도우 일괄 실기 확인 일정 기록(D-068)
 
 ### 변경
+- 윈도우 `.msi`를 사용자별 설치(`--win-per-user-install`, 기본 `%LOCALAPPDATA%\koja-app`, 폴더 선택 유지)로 바꾸고 whisper·llama·cuda를 빼 1,151MB에서 98.7MB로 줄임. 받은 모델·엔진은 설치 폴더 밖(기본 `%LOCALAPPDATA%\koja`, `<폴더>\app`에 설치하면 `<폴더>`)에 둬 제거·업그레이드 때 지워지지 않게 한다(D-076, D-077)
+- whisper-server·llama-server 탐색 순서: 번들 → 환경 변수 → 받아 둔 `engines/` → PATH(D-078)
 - `Pipeline.withSpeakers`: STT 구간에 단어 시간(`words`)이 있으면 단어 구간 합집합과 화자 턴의 겹침을 먼저 계산하고, 없거나 겹침이 0이면 전체 구간으로 폴백하도록 개선(D-064)
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙
 - 설계 4단계를 "ja 구간 일본어 재전사"에서 "비한국어 구간 한국어 재전사"로, 행 `startMs`를 첫 단어 시간으로 바꿈(D-040). D-006(보류)을 D-039로 대체

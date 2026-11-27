@@ -8,10 +8,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class LlamaServerTest {
+    @Test
+    void downloadedEngineComesAfterEnvBeforePath() {
+        Optional<Path> downloaded = Optional.of(Path.of("engines", "llama", "llama-server.exe"));
+        assertEquals("/env/llama-server", LlamaServer.executable(null, "/env/llama-server", "Windows 11", () -> {
+            throw new IllegalStateException("환경 변수가 있으면 받은 엔진을 찾지 않는다");
+        }));
+        assertEquals(downloaded.get().toString(), LlamaServer.executable(null, null, "Windows 11", () -> downloaded));
+    }
+
     @Test
     void bundledOnMac(@TempDir Path dir) throws IOException {
         Path contents = dir.resolve("앱 폴더").resolve("koja.app").resolve("Contents");

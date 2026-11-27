@@ -7,9 +7,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
- * {@code llama-server} 실행 파일 위치와 OS별 실행 환경(D-005, D-060, D-065, D-069).
+ * {@code llama-server} 실행 파일 위치와 OS별 실행 환경(D-005, D-060, D-065, D-069, D-077).
  * 번들 위치와 OS 분기는 {@code runtime} 패키지 한곳에 모은다.
  */
 public final class LlamaServer {
@@ -24,15 +25,21 @@ public final class LlamaServer {
 
     private LlamaServer() {}
 
-    /** 설치판에 들어 있는 llama-server → 환경 변수 {@code KOJA_LLAMA_SERVER} → PATH 순서. */
+    /** 설치판에 들어 있는 llama-server → 환경 변수 {@code KOJA_LLAMA_SERVER} → 받아 둔 엔진(engines/llama) → PATH 순서(D-078). */
     public static String executable() {
         return executable(
                 System.getProperty("jpackage.app-path"),
                 System.getenv(ENV_EXECUTABLE),
-                System.getProperty("os.name"));
+                System.getProperty("os.name"),
+                () -> EngineStore.installedExecutable(EngineStore.LLAMA));
     }
 
     static String executable(String appPath, String env, String osName) {
+        return executable(appPath, env, osName, Optional::empty);
+    }
+
+    /** 받아 둔 엔진은 번들·환경 변수가 없을 때만 찾는다(데이터 폴더 설정 오류가 지정한 실행 파일을 막지 않게). */
+    static String executable(String appPath, String env, String osName, Supplier<Optional<Path>> downloaded) {
         Optional<Path> bundled = AppPaths.bundledExecutable(appPath, BUNDLE_DIR, EXECUTABLE_BASE, osName);
         if (bundled.isPresent()) {
             return bundled.get().toString();
@@ -40,7 +47,7 @@ public final class LlamaServer {
         if (env != null && !env.isBlank()) {
             return env.trim();
         }
-        return AppPaths.executableName(EXECUTABLE_BASE, osName);
+        return downloaded.get().map(Path::toString).orElseGet(() -> AppPaths.executableName(EXECUTABLE_BASE, osName));
     }
 
     /**
@@ -81,7 +88,7 @@ public final class LlamaServer {
 
     /**
      * OS별 추가 프로세스 환경 변수.
-     * 윈도우 설치판은 CUDA 런타임 DLL이 {@code llama/} 옆 {@code cuda/}에 있어 {@code PATH} 맨 앞에 붙인다(D-060, D-069).
+     * 윈도우는 CUDA 런타임 DLL이 {@code llama/} 옆 {@code cuda/}(engines/cuda)에 있어 {@code PATH} 맨 앞에 붙인다(D-060, D-069).
      */
     public static Map<String, String> processEnvironment(String executable) {
         return processEnvironment(executable, System.getProperty("os.name"), System.getenv());

@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,6 +31,15 @@ class WhisperServerTest {
         assertEquals(Map.of(), WhisperServer.environment(exe, "Windows 11", Map.of("PATH", "x")));
         Files.createDirectories(dir.resolve("koja/cuda"));
         assertEquals(Map.of(), WhisperServer.environment(exe, "Mac OS X", Map.of("PATH", "x")));
+    }
+
+    @Test
+    void downloadedEngineOnlyWithoutBundleOrEnv() {
+        Optional<Path> bundled = Optional.of(Path.of("bundled", "whisper-server"));
+        Optional<Path> downloaded = Optional.of(Path.of("engines", "whisper", "whisper-server.exe"));
+        assertEquals(bundled, WhisperServer.local(bundled, null, () -> downloaded));
+        assertEquals(Optional.empty(), WhisperServer.local(Optional.empty(), "/env/whisper-server", () -> downloaded));
+        assertEquals(downloaded, WhisperServer.local(Optional.empty(), " ", () -> downloaded));
     }
 
     @Test
