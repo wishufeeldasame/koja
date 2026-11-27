@@ -145,8 +145,9 @@ class LocalServerTest {
 
     @Test
     void loopbackHttpClientSendsPlainHttp11WithoutH2cUpgrade() throws Exception {
-        try (java.net.ServerSocket listener = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress());
+        try (java.net.ServerSocket listener = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"));
                 java.net.http.HttpClient client = LocalServer.newLoopbackHttpClient(Duration.ofSeconds(2))) {
+            listener.setSoTimeout(5000);
             java.net.URI uri = java.net.URI.create("http://127.0.0.1:" + listener.getLocalPort() + "/inference");
             List<HttpRequest> requests = List.of(
                     HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(5)).GET().build(),
