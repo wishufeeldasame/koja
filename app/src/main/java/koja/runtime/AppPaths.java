@@ -13,8 +13,8 @@ public final class AppPaths {
     public static final String APP_DIR_NAME = "koja";
     public static final String MODELS_DIR_NAME = "models";
     public static final String ENV_DATA_DIR = "KOJA_DATA_DIR";
-    /** 설치 창에서 {@code <폴더>\program}을 고르면 데이터를 그 부모 {@code <폴더>}에 둔다(D-076). */
-    public static final String WINDOWS_INSTALL_SUBDIR = "program";
+    /** 설치 창에서 {@code <폴더>\app}을 고르면 데이터를 그 부모 {@code <폴더>}에 둔다(D-076). */
+    public static final String WINDOWS_INSTALL_SUBDIR = "app";
 
     private AppPaths() {}
 
@@ -50,7 +50,7 @@ public final class AppPaths {
     }
 
     /**
-     * 모델·엔진을 두는 한 폴더(D-076). {@code KOJA_DATA_DIR} → 윈도우 설치판은 {@code <폴더>\program} 설치의 부모
+     * 모델·엔진을 두는 한 폴더(D-076). {@code KOJA_DATA_DIR} → 윈도우 설치판은 {@code <폴더>\app} 설치의 부모
      * {@code <폴더>}(쓸 수 있을 때) → OS 기본 폴더(Win {@code %LOCALAPPDATA%\koja}, Mac {@code ~/Library/Application Support/koja}) 순서.
      */
     public static Path dataDir() {
@@ -78,7 +78,7 @@ public final class AppPaths {
                         + " (따옴표 없이 폴더 경로만 적으세요)", e);
             }
             Path installDir = windowsInstallDir(appPath, osName);
-            if (installDir != null && dir.startsWith(installDir)) {
+            if (installDir != null && overlaps(dir, installDir)) {
                 throw new IllegalStateException("환경 변수 " + ENV_DATA_DIR + "가 설치 폴더 안을 가리킵니다: " + dir
                         + "\n설치 폴더는 제거·업그레이드 때 통째로 지워지므로 그 밖의 폴더를 지정하세요.");
             }
@@ -90,14 +90,28 @@ public final class AppPaths {
             return fallback;
         }
         // jpackage .msi는 제거·업그레이드 때 설치 폴더를 통째로 지운다(RemoveFolderEx). 받은 파일은 설치 폴더 밖에 둔다.
-        // 설치 창에서 F:\koja\program을 고르면 부모 F:\koja에 앱과 함께 모은다. 기본 설치(%LOCALAPPDATA%\koja-program)는 OS 기본 폴더.
+        // 설치 창에서 F:\koja\app을 고르면 부모 F:\koja에 앱과 함께 모은다. 기본 설치(%LOCALAPPDATA%\koja-app)는 OS 기본 폴더.
         Path parent = installDir.getParent();
         if (parent != null && installDir.getFileName().toString().equalsIgnoreCase(WINDOWS_INSTALL_SUBDIR)
                 && writable.test(parent)) {
             return parent;
         }
-        // 설치 폴더를 %LOCALAPPDATA%\koja로 바꿔 골랐으면 기본 폴더도 지워질 자리라 옆 폴더를 쓴다.
-        return fallback.startsWith(installDir) ? installDir.resolveSibling(APP_DIR_NAME + "-data") : fallback;
+        // 설치 폴더를 %LOCALAPPDATA%\koja(또는 그 models·engines)로 골랐으면 기본 폴더도 지워질 자리라 옆 폴더를 쓴다.
+        if (!overlaps(fallback, installDir)) {
+            return fallback;
+        }
+        Path sibling = installDir.resolveSibling(APP_DIR_NAME + "-data");
+        if (overlaps(sibling, installDir)) {
+            throw new IllegalStateException("설치 폴더와 겹치지 않는 데이터 폴더를 정할 수 없습니다: " + installDir
+                    + "\n환경 변수 " + ENV_DATA_DIR + "로 설치 폴더 밖의 폴더를 지정하세요.");
+        }
+        return sibling;
+    }
+
+    /** 데이터 폴더나 그 models·engines가 설치 폴더 안에 있으면(또는 설치 폴더가 그 안에 있으면) 제거·업그레이드 때 지워진다. */
+    static boolean overlaps(Path dataDir, Path installDir) {
+        return dataDir.startsWith(installDir) || installDir.startsWith(dataDir.resolve(MODELS_DIR_NAME))
+                || installDir.startsWith(dataDir.resolve(EngineStore.DIR_NAME));
     }
 
     /** 윈도우 설치판의 설치 폴더(실행 파일 폴더). 설치판이 아니거나 윈도우가 아니면 null. */

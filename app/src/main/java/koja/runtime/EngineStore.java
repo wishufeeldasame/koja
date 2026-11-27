@@ -2,9 +2,11 @@ package koja.runtime;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -232,6 +234,19 @@ public final class EngineStore implements AutoCloseable {
                 // 백신 등이 잠가 못 지워도 엔진은 설치돼 있으니 처리는 계속하고 다음 처리 때 다시 지운다.
             }
         }
+        for (Engine engine : engines) {
+            if (isInstalled(engine)) {
+                deleteQuietly(enginesDir.resolve(".old-" + engine.dir()));
+            }
+        }
+    }
+
+    private static void deleteQuietly(Path dir) {
+        try {
+            deleteTree(dir);
+        } catch (IOException e) {
+            // 바꾼 뒤 남은 이전 엔진은 잠겨 있어도 처리를 막지 않고 다음 cleanup에서 다시 지운다.
+        }
     }
 
     private void fetchAndUnpack(List<Engine> todo, ProgressListener listener, CancelToken token) throws IOException {
@@ -273,15 +288,19 @@ public final class EngineStore implements AutoCloseable {
         Files.createDirectories(stage);
         try (ZipFile zip = new ZipFile(downloads.pathOf(engine.archive()).toFile(), StandardCharsets.UTF_8)) {
             for (String name : engine.entries()) {
-                if (token != null && token.isCancelled()) {
-                    throw new CancellationException("엔진 설치를 취소했습니다");
-                }
+                checkCancelled(token);
                 ZipEntry entry = zip.getEntry(name);
                 if (entry == null || entry.isDirectory()) {
                     throw new IOException(engine.archive().relativePath() + " 안에 " + name + "이(가) 없습니다");
                 }
-                try (InputStream in = zip.getInputStream(entry)) {
-                    Files.copy(in, stage.resolve(fileName(name)));
+                try (InputStream in = zip.getInputStream(entry);
+                        OutputStream out = Files.newOutputStream(stage.resolve(fileName(name)))) {
+                    // CUDA DLL은 수백 MB라 한 번에 복사하면 취소가 늦다.
+                    byte[] buffer = new byte[1 << 20];
+                    for (int n; (n = in.read(buffer)) > 0; ) {
+                        checkCancelled(token);
+                        out.write(buffer, 0, n);
+                    }
                 }
             }
         }
@@ -289,17 +308,32 @@ public final class EngineStore implements AutoCloseable {
         Files.writeString(stage.resolve(NOTICE), engine.notice(), StandardCharsets.UTF_8);
         Files.writeString(stage.resolve(MARKER), engine.dir() + "\n", StandardCharsets.UTF_8);
         checkOurs(target);
+        checkCancelled(token);
         deleteTree(old);
         if (Files.exists(target)) {
             Files.move(target, old, StandardCopyOption.ATOMIC_MOVE);
         }
         Files.move(stage, target, StandardCopyOption.ATOMIC_MOVE);
-        deleteTree(old);
+        deleteQuietly(old);
+    }
+
+    private static void checkCancelled(CancelToken token) {
+        if (token != null && token.isCancelled()) {
+            throw new CancellationException("엔진 설치를 취소했습니다");
+        }
     }
 
     /** 없거나 빈 폴더, 또는 koja가 설치한 폴더만 바꾼다(scripts/bundle_*.sh의 check_ours와 같은 규칙). */
     private static void checkOurs(Path target) throws IOException {
-        if (!Files.exists(target) || Files.isRegularFile(target.resolve(MARKER))) {
+        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        // 심볼릭 링크·NTFS 정션은 JDK가 디렉터리로 보고 지울 때 연결 대상까지 따라간다. 실제 경로가 다르면 바꾸지 않는다.
+        if (!target.toRealPath().equals(target.getParent().toRealPath().resolve(target.getFileName()))) {
+            throw new IOException("엔진 폴더가 링크(정션)라 바꾸지 않습니다: " + target
+                    + "\n링크를 지운 뒤 다시 실행하세요.");
+        }
+        if (Files.isRegularFile(target.resolve(MARKER))) {
             return;
         }
         if (Files.isDirectory(target)) {

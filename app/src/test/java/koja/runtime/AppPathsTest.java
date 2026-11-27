@@ -60,14 +60,14 @@ class AppPathsTest {
     void dataDirPrefersOverrideThenParentOfWindowsProgramDir(@TempDir Path temp) {
         Path local = temp.resolve("AppData").resolve("Local");
         Path root = temp.resolve("F 드라이브").resolve("koja");
-        String launcher = root.resolve("program").resolve("koja.exe").toString();
+        String launcher = root.resolve("app").resolve("koja.exe").toString();
         Path override = temp.resolve("내 데이터");
         assertEquals(override, AppPaths.dataDir(override.toString(), launcher, "Windows 11", local.toString(), null,
                 temp.toString(), p -> true));
-        // 설치 폴더(program\)는 제거·업그레이드 때 통째로 지워져 그 부모에 둔다.
+        // 설치 폴더(app\)는 제거·업그레이드 때 통째로 지워져 그 부모에 둔다.
         assertEquals(root, AppPaths.dataDir(null, launcher, "Windows 11", local.toString(), null,
                 temp.toString(), p -> true));
-        // program\ 없이 고른 다른 폴더는 OS 기본 폴더.
+        // app\ 없이 고른 다른 폴더는 OS 기본 폴더.
         assertEquals(local.resolve("koja"), AppPaths.dataDir(null, root.resolve("koja.exe").toString(), "Windows 11",
                 local.toString(), null, temp.toString(), p -> true));
         // 설치 폴더가 %LOCALAPPDATA%\koja 자체면 기본 폴더도 지워질 자리라 옆 koja-data.
@@ -93,11 +93,25 @@ class AppPathsTest {
 
     @Test
     void dataDirOverrideInsideWindowsInstallDirIsRejected(@TempDir Path temp) {
-        Path install = temp.resolve("koja-program");
+        Path install = temp.resolve("koja-app");
         String launcher = install.resolve("koja.exe").toString();
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir(
                 install.resolve("데이터").toString(), launcher, "Windows 11", temp.toString(), null, temp.toString(),
                 p -> true));
+        assertTrue(e.getMessage().contains("설치 폴더"), e.getMessage());
+    }
+
+    @Test
+    void installDirInsideDataModelsOrEnginesOverlaps(@TempDir Path temp) {
+        Path data = temp.resolve("koja");
+        assertTrue(AppPaths.overlaps(data, data.resolve("engines")));
+        assertTrue(AppPaths.overlaps(data, data.resolve("models").resolve("앱")));
+        assertTrue(AppPaths.overlaps(data.resolve("하위"), data));
+        assertFalse(AppPaths.overlaps(data, data.resolve("app")));
+        assertFalse(AppPaths.overlaps(data, temp.resolve("koja-app")));
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir(data.toString(),
+                data.resolve("engines").resolve("koja.exe").toString(), "Windows 11", temp.toString(), null,
+                temp.toString(), p -> true));
         assertTrue(e.getMessage().contains("설치 폴더"), e.getMessage());
     }
 

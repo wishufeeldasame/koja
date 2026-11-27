@@ -116,7 +116,7 @@ scripts/bundle_ffmpeg.sh   # 설치파일에 넣을 LGPL ffmpeg를 app/build/ffm
 scripts/bundle_whisper.sh  # 맥 설치파일에 넣을 whisper-server를 app/build/whisper에 (CMake로 Metal 소스 빌드 약 30초). 윈도우는 개발용(CUDA 12.4 빌드 735MB, CUDA DLL은 app/build/cuda). 윈도우 설치판은 앱이 처음 실행할 때 받는다
 scripts/bundle_llama.sh    # 맥 설치파일에 넣을 llama.cpp b12655 llama-server를 app/build/llama에 (arm64 Metal). 윈도우 x64 CUDA는 개발용(공유 CUDA DLL은 app/build/cuda)
 ./gradlew oauthPoc --args="<폴더 ID>"   # 실제 구글 로그인 후 drive.file로 시트를 만들 수 있는 위치 확인(KOJA_GOOGLE_CLIENT_ID·KOJA_GOOGLE_CLIENT_SECRET 필요, CI에서 안 돌림)
-./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3. 맥은 app/build/ffmpeg·whisper·llama, 윈도우는 app/build/ffmpeg가 없으면 실패. 윈도우는 사용자별 설치(기본 %LOCALAPPDATA%\koja-program, 받은 모델·엔진은 설치 폴더 밖 %LOCALAPPDATA%\koja)
+./gradlew jpackage  # 현재 OS용 설치파일을 app/build/jpackage에 (맥 .dmg / 윈도우 .msi). 버전은 -PappVersion=1.2.3. 맥은 app/build/ffmpeg·whisper·llama, 윈도우는 app/build/ffmpeg가 없으면 실패. 윈도우는 사용자별 설치(기본 %LOCALAPPDATA%\koja-app, 받은 모델·엔진은 설치 폴더 밖 %LOCALAPPDATA%\koja)
 ```
 
 - 윈도우에서는 `gradlew.bat`을 쓴다.

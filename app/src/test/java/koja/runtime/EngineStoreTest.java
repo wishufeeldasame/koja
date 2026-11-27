@@ -120,6 +120,24 @@ class EngineStoreTest {
     }
 
     @Test
+    void linkedEngineFolderIsNotReplaced(@TempDir Path temp) throws Exception {
+        Path elsewhere = Files.createDirectories(temp.resolve("다른 드라이브").resolve("cuda"));
+        Files.writeString(elsewhere.resolve(EngineStore.MARKER), "cuda\n");
+        Path dir = Files.createDirectories(temp.resolve("engines"));
+        try {
+            Files.createSymbolicLink(dir.resolve("cuda"), elsewhere);
+        } catch (UnsupportedOperationException | IOException e) {
+            return; // 윈도우 CI처럼 링크를 만들 권한이 없으면 건너뛴다.
+        }
+        Engine tool = engine("cuda", zip(Map.of("Release/tool.exe", "exe")), List.of("Release/tool.exe"), "v1\n");
+        try (EngineStore store = new EngineStore(dir, new ModelStore(dir, client))) {
+            IOException e = assertThrows(IOException.class, () -> store.install(List.of(tool), null, null));
+            assertTrue(e.getMessage().contains("링크"), e.getMessage());
+            assertTrue(Files.exists(elsewhere.resolve(EngineStore.MARKER)));
+        }
+    }
+
+    @Test
     void missingEntryFailsWithoutInstalling(@TempDir Path temp) throws Exception {
         Engine broken = engine("broken", zip(Map.of("Release/tool.exe", "exe")), List.of("Release/none.dll"), "v1\n");
         try (EngineStore store = new EngineStore(temp, new ModelStore(temp, client))) {
