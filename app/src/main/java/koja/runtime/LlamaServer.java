@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * {@code llama-server} 실행 파일 위치와 OS별 실행 환경(D-005, D-060, D-065, D-069, D-077).
@@ -30,14 +31,15 @@ public final class LlamaServer {
                 System.getProperty("jpackage.app-path"),
                 System.getenv(ENV_EXECUTABLE),
                 System.getProperty("os.name"),
-                EngineStore.installedExecutable(EngineStore.LLAMA));
+                () -> EngineStore.installedExecutable(EngineStore.LLAMA));
     }
 
     static String executable(String appPath, String env, String osName) {
-        return executable(appPath, env, osName, Optional.empty());
+        return executable(appPath, env, osName, Optional::empty);
     }
 
-    static String executable(String appPath, String env, String osName, Optional<Path> downloaded) {
+    /** 받아 둔 엔진은 번들·환경 변수가 없을 때만 찾는다(데이터 폴더 설정 오류가 지정한 실행 파일을 막지 않게). */
+    static String executable(String appPath, String env, String osName, Supplier<Optional<Path>> downloaded) {
         Optional<Path> bundled = AppPaths.bundledExecutable(appPath, BUNDLE_DIR, EXECUTABLE_BASE, osName);
         if (bundled.isPresent()) {
             return bundled.get().toString();
@@ -45,7 +47,7 @@ public final class LlamaServer {
         if (env != null && !env.isBlank()) {
             return env.trim();
         }
-        return downloaded.map(Path::toString).orElseGet(() -> AppPaths.executableName(EXECUTABLE_BASE, osName));
+        return downloaded.get().map(Path::toString).orElseGet(() -> AppPaths.executableName(EXECUTABLE_BASE, osName));
     }
 
     /**

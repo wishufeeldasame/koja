@@ -92,6 +92,16 @@ class AppPathsTest {
     }
 
     @Test
+    void dataDirOverrideInsideWindowsInstallDirIsRejected(@TempDir Path temp) {
+        Path install = temp.resolve("koja-program");
+        String launcher = install.resolve("koja.exe").toString();
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> AppPaths.dataDir(
+                install.resolve("데이터").toString(), launcher, "Windows 11", temp.toString(), null, temp.toString(),
+                p -> true));
+        assertTrue(e.getMessage().contains("설치 폴더"), e.getMessage());
+    }
+
+    @Test
     void pipelineLockIgnoresDataDirOverride() {
         assertTrue(AppPaths.pipelineLockFile().endsWith(Path.of("koja", "pipeline.lock")));
     }

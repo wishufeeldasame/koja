@@ -108,6 +108,18 @@ class EngineStoreTest {
     }
 
     @Test
+    void userFolderIsNotReplacedOrDownloaded(@TempDir Path temp) throws Exception {
+        Engine tool = engine("whisper", zip(Map.of("Release/tool.exe", "exe")), List.of("Release/tool.exe"), "v1\n");
+        Path mine = Files.writeString(Files.createDirectories(temp.resolve("whisper")).resolve("내 빌드.exe"), "mine");
+        try (EngineStore store = new EngineStore(temp, new ModelStore(temp, client))) {
+            IOException e = assertThrows(IOException.class, () -> store.install(List.of(tool), null, null));
+            assertTrue(e.getMessage().contains("koja가 설치한"), e.getMessage());
+            assertEquals("mine", Files.readString(mine));
+            assertFalse(Files.exists(temp.resolve(".downloads").resolve("whisper.zip")));
+        }
+    }
+
+    @Test
     void missingEntryFailsWithoutInstalling(@TempDir Path temp) throws Exception {
         Engine broken = engine("broken", zip(Map.of("Release/tool.exe", "exe")), List.of("Release/none.dll"), "v1\n");
         try (EngineStore store = new EngineStore(temp, new ModelStore(temp, client))) {

@@ -31,6 +31,8 @@ import koja.runtime.ModelStore.ProgressListener;
 public final class EngineStore implements AutoCloseable {
     public static final String DIR_NAME = "engines";
     static final String NOTICE = "NOTICE.txt";
+    /** koja가 설치한 폴더 표시. 이것이 없는 폴더(사용자가 직접 둔 엔진)는 바꾸거나 지우지 않는다. */
+    static final String MARKER = ".koja-engine";
     private static final String DOWNLOADS = ".downloads";
 
     /**
@@ -233,6 +235,10 @@ public final class EngineStore implements AutoCloseable {
     }
 
     private void fetchAndUnpack(List<Engine> todo, ProgressListener listener, CancelToken token) throws IOException {
+        // 1GB를 받은 뒤에야 덮어쓸 수 없다고 멈추지 않게 먼저 본다.
+        for (Engine engine : todo) {
+            checkOurs(dirOf(engine));
+        }
         long total = downloadSize(todo);
         long before = 0;
         for (ModelSpec spec : downloadsOf(todo)) {
@@ -281,12 +287,30 @@ public final class EngineStore implements AutoCloseable {
         }
         Files.copy(downloads.pathOf(engine.license()), stage.resolve(engine.licenseName()));
         Files.writeString(stage.resolve(NOTICE), engine.notice(), StandardCharsets.UTF_8);
+        Files.writeString(stage.resolve(MARKER), engine.dir() + "\n", StandardCharsets.UTF_8);
+        checkOurs(target);
         deleteTree(old);
         if (Files.exists(target)) {
             Files.move(target, old, StandardCopyOption.ATOMIC_MOVE);
         }
         Files.move(stage, target, StandardCopyOption.ATOMIC_MOVE);
         deleteTree(old);
+    }
+
+    /** 없거나 빈 폴더, 또는 koja가 설치한 폴더만 바꾼다(scripts/bundle_*.sh의 check_ours와 같은 규칙). */
+    private static void checkOurs(Path target) throws IOException {
+        if (!Files.exists(target) || Files.isRegularFile(target.resolve(MARKER))) {
+            return;
+        }
+        if (Files.isDirectory(target)) {
+            try (Stream<Path> files = Files.list(target)) {
+                if (files.findAny().isEmpty()) {
+                    return;
+                }
+            }
+        }
+        throw new IOException("koja가 설치한 엔진 폴더가 아니라 바꾸지 않습니다: " + target
+                + "\n그 폴더를 다른 곳으로 옮기거나 지운 뒤 다시 실행하세요.");
     }
 
     private static String fileName(String entry) {

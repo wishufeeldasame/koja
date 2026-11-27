@@ -47,7 +47,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 - 설치파일에 `llama-server`(`b12655`) 번들·CI·jpackage 연결 및 윈도우 공유 `cuda/` 통합(`scripts/bundle_llama.sh`, `koja.runtime.LlamaServer`, `app/build.gradle.kts`, `.github/workflows/build.yml`): `bundle_llama.sh` 2인자(`OUT`, `CUDA_OUT`) 구조로 윈도우 CUDA 런타임 DLL 중복 제거 및 기존 `cuda/` 재사용, `LlamaServer.processEnvironment`의 윈도우 형제 `cuda/` 대소문자 보존 `PATH` 전치, CI 캐시 분리 및 `.dmg`/`.msi` 안 `llama/llama-server`·고지 검사 추가(D-069). 통합 `.msi` 윈도우 일괄 실기 확인 일정 기록(D-068)
 
 ### 변경
-- 윈도우 `.msi`를 사용자별 설치(`--win-per-user-install`, 기본 `%LOCALAPPDATA%\koja\program`, 폴더 선택 유지)로 바꾸고 whisper·llama·cuda를 빼 1,151MB에서 98.7MB로 줄임. 받은 모델·엔진은 설치 폴더의 부모(`koja\`)에 둬 제거·업그레이드 때 지워지지 않게 한다(D-076, D-077)
+- 윈도우 `.msi`를 사용자별 설치(`--win-per-user-install`, 기본 `%LOCALAPPDATA%\koja-program`, 폴더 선택 유지)로 바꾸고 whisper·llama·cuda를 빼 1,151MB에서 98.7MB로 줄임. 받은 모델·엔진은 설치 폴더 밖(기본 `%LOCALAPPDATA%\koja`, `<폴더>\program`에 설치하면 `<폴더>`)에 둬 제거·업그레이드 때 지워지지 않게 한다(D-076, D-077)
 - whisper-server·llama-server 탐색 순서: 번들 → 환경 변수 → 받아 둔 `engines/` → PATH(D-078)
 - `Pipeline.withSpeakers`: STT 구간에 단어 시간(`words`)이 있으면 단어 구간 합집합과 화자 턴의 겹침을 먼저 계산하고, 없거나 겹침이 0이면 전체 구간으로 폴백하도록 개선(D-064)
 - 윈도우 실기 확인은 데스크톱 한 대로 충분(D-043). AGENTS.md 크로스 플랫폼 규칙

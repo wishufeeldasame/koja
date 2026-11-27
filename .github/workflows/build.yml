@@ -108,8 +108,8 @@ jobs:
           Start-Process msiexec -Wait -ArgumentList '/a', "`"$msi`"", '/qn', "TARGETDIR=`"$dir`""
           $launcher = Get-ChildItem $dir -Recurse -Filter koja.exe | Select-Object -First 1
           if (-not $launcher) { throw "koja.exe 없음" }
-          # 받은 모델·엔진은 설치 폴더(제거 때 통째로 지워짐) 밖 부모 koja\에 둔다(D-076).
-          if ($launcher.Directory.Name -ne 'program' -or $launcher.Directory.Parent.Name -ne 'koja') { throw "설치 폴더가 koja\program이 아님: $($launcher.DirectoryName)" }
+          # 받은 모델·엔진은 설치 폴더(제거 때 통째로 지워짐) 밖 %LOCALAPPDATA%\koja에 둔다(D-076).
+          if ($launcher.Directory.Name -ne 'koja-program') { throw "설치 폴더가 koja-program이 아님: $($launcher.DirectoryName)" }
           $ffmpeg = Join-Path $launcher.DirectoryName 'ffmpeg\ffmpeg.exe'
           if (-not (Test-Path $ffmpeg)) { Get-ChildItem $dir -Recurse | Select-Object -ExpandProperty FullName; throw "ffmpeg.exe 없음: $ffmpeg" }
           & $ffmpeg -hide_banner -version | Select-Object -First 1

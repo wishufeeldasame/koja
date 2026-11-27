@@ -16,8 +16,10 @@ class LlamaServerTest {
     @Test
     void downloadedEngineComesAfterEnvBeforePath() {
         Optional<Path> downloaded = Optional.of(Path.of("engines", "llama", "llama-server.exe"));
-        assertEquals("/env/llama-server", LlamaServer.executable(null, "/env/llama-server", "Windows 11", downloaded));
-        assertEquals(downloaded.get().toString(), LlamaServer.executable(null, null, "Windows 11", downloaded));
+        assertEquals("/env/llama-server", LlamaServer.executable(null, "/env/llama-server", "Windows 11", () -> {
+            throw new IllegalStateException("환경 변수가 있으면 받은 엔진을 찾지 않는다");
+        }));
+        assertEquals(downloaded.get().toString(), LlamaServer.executable(null, null, "Windows 11", () -> downloaded));
     }
 
     @Test

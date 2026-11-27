@@ -13,7 +13,7 @@ public final class AppPaths {
     public static final String APP_DIR_NAME = "koja";
     public static final String MODELS_DIR_NAME = "models";
     public static final String ENV_DATA_DIR = "KOJA_DATA_DIR";
-    /** 윈도우 .msi 설치 하위 폴더 이름(jpackage --install-dir koja\program). 데이터는 그 부모에 둔다(D-076). */
+    /** 설치 창에서 {@code <폴더>\program}을 고르면 데이터를 그 부모 {@code <폴더>}에 둔다(D-076). */
     public static final String WINDOWS_INSTALL_SUBDIR = "program";
 
     private AppPaths() {}
@@ -70,23 +70,27 @@ public final class AppPaths {
     static Path dataDir(String override, String appPath, String osName, String localAppData, String xdgDataHome,
             String userHome, Predicate<Path> writable) {
         if (override != null && !override.isBlank()) {
+            Path dir;
             try {
-                return Path.of(override.trim()).toAbsolutePath().normalize();
+                dir = Path.of(override.trim()).toAbsolutePath().normalize();
             } catch (InvalidPathException e) {
                 throw new IllegalStateException("환경 변수 " + ENV_DATA_DIR + "의 경로가 잘못됐습니다: " + override
                         + " (따옴표 없이 폴더 경로만 적으세요)", e);
             }
+            Path installDir = windowsInstallDir(appPath, osName);
+            if (installDir != null && dir.startsWith(installDir)) {
+                throw new IllegalStateException("환경 변수 " + ENV_DATA_DIR + "가 설치 폴더 안을 가리킵니다: " + dir
+                        + "\n설치 폴더는 제거·업그레이드 때 통째로 지워지므로 그 밖의 폴더를 지정하세요.");
+            }
+            return dir;
         }
         Path fallback = dataDir(osName, localAppData, xdgDataHome, userHome);
-        if (!isWindows(osName) || appPath == null || appPath.isBlank()) {
-            return fallback;
-        }
-        // jpackage .msi는 제거·업그레이드 때 설치 폴더를 통째로 지운다(RemoveFolderEx). 받은 파일은 설치 폴더 밖에 둔다.
-        // 기본 %LOCALAPPDATA%\koja\program 또는 설치 창에서 고른 F:\koja\program이면 부모 koja\에 앱과 함께 모은다.
-        Path installDir = Path.of(appPath).toAbsolutePath().getParent();
+        Path installDir = windowsInstallDir(appPath, osName);
         if (installDir == null) {
             return fallback;
         }
+        // jpackage .msi는 제거·업그레이드 때 설치 폴더를 통째로 지운다(RemoveFolderEx). 받은 파일은 설치 폴더 밖에 둔다.
+        // 설치 창에서 F:\koja\program을 고르면 부모 F:\koja에 앱과 함께 모은다. 기본 설치(%LOCALAPPDATA%\koja-program)는 OS 기본 폴더.
         Path parent = installDir.getParent();
         if (parent != null && installDir.getFileName().toString().equalsIgnoreCase(WINDOWS_INSTALL_SUBDIR)
                 && writable.test(parent)) {
@@ -94,6 +98,14 @@ public final class AppPaths {
         }
         // 설치 폴더를 %LOCALAPPDATA%\koja로 바꿔 골랐으면 기본 폴더도 지워질 자리라 옆 폴더를 쓴다.
         return fallback.startsWith(installDir) ? installDir.resolveSibling(APP_DIR_NAME + "-data") : fallback;
+    }
+
+    /** 윈도우 설치판의 설치 폴더(실행 파일 폴더). 설치판이 아니거나 윈도우가 아니면 null. */
+    private static Path windowsInstallDir(String appPath, String osName) {
+        if (!isWindows(osName) || appPath == null || appPath.isBlank()) {
+            return null;
+        }
+        return Path.of(appPath).toAbsolutePath().normalize().getParent();
     }
 
     /** 윈도우 ACL·읽기 전용 매체는 {@link Files#isWritable}이 맞지 않을 수 있어 파일을 실제로 만들어 본다. */
