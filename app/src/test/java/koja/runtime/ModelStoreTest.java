@@ -212,7 +212,7 @@ class ModelStoreTest {
         Path part = store.partPathOf(spec);
         assertTrue(Files.isRegularFile(part));
         long saved = Files.size(part);
-        assertTrue(saved > 0 && saved < payload.length);
+        assertTrue(saved > 0 && saved < payload.length, "saved=" + saved);
 
         Path completed = store.ensureDownloaded(spec);
         assertArrayEquals(payload, Files.readAllBytes(completed));
@@ -378,6 +378,30 @@ class ModelStoreTest {
     }
 
     @Test
+    void slowProgressCallbackDoesNotTriggerBodyReadTimeout(@TempDir Path temp) throws Exception {
+        byte[] payload = sampleBytes(120_000);
+        server.createContext("/slow-listener.bin", ex -> serveRange(ex, payload, true));
+
+        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofSeconds(1));
+        ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
+                "slow-listener.bin", baseUri.resolve("/slow-listener.bin"), payload.length, sha256(payload));
+        AtomicBoolean slept = new AtomicBoolean();
+
+        // 읽기 사이 콜백이 타임아웃보다 오래 걸려도 네트워크 정지가 아니므로 끝까지 받아야 한다.
+        Path completed = store.ensureDownloaded(spec, (got, total) -> {
+            if (got > 0 && slept.compareAndSet(false, true)) {
+                try {
+                    Thread.sleep(1_500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }, null);
+        assertArrayEquals(payload, Files.readAllBytes(completed));
+        assertTrue(slept.get());
+    }
+
+    @Test
     void stalledBodyReadTimesOutAndPreservesPartForResume(@TempDir Path temp) throws Exception {
         byte[] payload = sampleBytes(120_000);
         String expectedSha = sha256(payload);
@@ -400,11 +424,13 @@ class ModelStoreTest {
             serveRange(ex, payload, true);
         });
 
-        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofMillis(300));
+        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofSeconds(2));
         ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
                 "stall.bin", baseUri.resolve("/stall.bin"), payload.length, expectedSha);
 
-        assertThrows(IOException.class, () -> store.ensureDownloaded(spec));
+        // 서버가 5초 뒤 연결을 닫아도 IOException이 나므로, 래치 해제 전에 워치독이 끊었는지 메시지로 확인한다.
+        IOException stall = assertThrows(IOException.class, () -> store.ensureDownloaded(spec));
+        assertTrue(stall.getMessage().contains("본문 수신 시간 초과"), stall.toString());
         releaseStall.countDown();
 
         Path part = store.partPathOf(spec);

@@ -44,6 +44,7 @@ public final class ModelStore implements AutoCloseable {
     private static final int HASH_BUFFER_SIZE = 1024 * 1024;
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(60);
+    private static final long NOT_READING = Long.MIN_VALUE;
     private static final long LOCK_POLL_MILLIS = 50L;
     private static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-fA-F]{64}$");
     private static final Pattern CONTENT_RANGE_PATTERN = Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)$");
@@ -446,7 +447,9 @@ public final class ModelStore implements AutoCloseable {
             CancelToken cancelToken) throws IOException {
         AtomicBoolean stalled = new AtomicBoolean();
         AtomicBoolean reading = new AtomicBoolean(true);
-        AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
+        // 파일 열기·쓰기·진행 콜백 시간은 빼고 read()에서 막힌 시간만 재야 느린 디스크에서 오탐하지 않는다.
+        // 읽기 시작 시각 하나를 CAS로 주고받아, 제때 끝난 읽기를 워치독이 뒤늦게 타임아웃으로 처리하지 않게 한다.
+        AtomicLong readStartNanos = new AtomicLong(NOT_READING);
         long timeoutNanos = readTimeout.toNanos();
         long checkMillis = Math.max(10L, Math.min(1_000L, readTimeout.toMillis() / 4));
 
@@ -454,7 +457,10 @@ public final class ModelStore implements AutoCloseable {
                 .name("koja-download-watchdog")
                 .start(() -> {
                     while (reading.get()) {
-                        if (System.nanoTime() - lastActivityNanos.get() >= timeoutNanos) {
+                        long start = readStartNanos.get();
+                        if (start != NOT_READING
+                                && System.nanoTime() - start >= timeoutNanos
+                                && readStartNanos.compareAndSet(start, NOT_READING)) {
                             stalled.set(true);
                             closeQuietly(body);
                             return;
@@ -480,9 +486,9 @@ public final class ModelStore implements AutoCloseable {
                 byte[] buffer = new byte[BUFFER_SIZE];
                 while (true) {
                     checkCancelled(cancelToken);
+                    readStartNanos.set(System.nanoTime());
                     int n = body.read(buffer);
-                    lastActivityNanos.set(System.nanoTime());
-                    if (stalled.get()) {
+                    if (readStartNanos.getAndSet(NOT_READING) == NOT_READING) {
                         throw new IOException("모델 다운로드 본문 수신 시간 초과(" + readTimeout + "): " + spec.relativePath());
                     }
                     if (n < 0) {
