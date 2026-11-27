@@ -63,4 +63,9 @@ public final class LocalEngines {
         return () -> SherpaDiarizer.open(store.pathOf(SherpaModels.PYANNOTE_SEGMENTATION),
                 store.pathOf(SherpaModels.CAMPPLUS_EMBEDDING));
     }
+
+    /** 5단계 구조화용 llama-server(Gemma 4 E4B, 8K, D-055·D-066). 모델이 없으면 받는다. */
+    public static Pipeline.Opener<LlmClient> llm(ModelStore store) {
+        return () -> LlamaServerClient.open(store);
+    }
 }

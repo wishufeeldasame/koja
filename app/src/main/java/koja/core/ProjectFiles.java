@@ -13,6 +13,7 @@ public final class ProjectFiles {
     /** 단계 결과 파일(설계 5장). */
     public static final String STT = "stt.json";
     public static final String DIAR = "diar.json";
+    public static final String ROWS = "rows.json";
 
     private ProjectFiles() {}
 

@@ -401,4 +401,39 @@ class PipelineTest {
         assertFalse(Files.exists(file.resolveSibling(ProjectFiles.STT)));
         assertFalse(ProjectStore.load(file).stages().containsKey(Pipeline.STT));
     }
+
+    LlmClient fakeLlm() {
+        log.add("open llm");
+        StructurerTest.FakeLlm llm = new StructurerTest.FakeLlm() {
+            @Override
+            public void close() {
+                log.add("close llm");
+            }
+        };
+        llm.analysis = "{\"videoType\":\"INTERVIEW_JA\",\"speakers\":[{\"id\":\"S1\",\"role\":\"INTERVIEWEE\"},"
+                + "{\"id\":\"S2\",\"role\":\"INTERVIEWER_JA\"},{\"id\":\"?\",\"role\":\"UNKNOWN\"}]}";
+        llm.chunk = ids -> StructurerTest.items(ids, "LINE", true).replace("{\"id\":3,\"action\":\"LINE\"",
+                "{\"id\":3,\"action\":\"IGNORE\"");
+        return llm;
+    }
+
+    @Test
+    void structuresRowsWithLlmAfterOtherEnginesClosed() throws Exception {
+        Path file = newProject(List.of());
+
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, this::fakeLlm, (s, f) -> {});
+
+        assertEquals(List.of("open stt", "close stt", "open diar", "close diar", "open llm", "close llm"), log);
+        assertEquals(List.of(List.of(1), List.of(2)), p.rows().stream().map(Project.Row::segIds).toList());
+        assertEquals(List.of(3), p.ignoredSegIds());
+        assertEquals(Project.VideoType.INTERVIEW_JA, p.videoType());
+        assertEquals("fake-llm", p.stages().get(Pipeline.ROWS).engine());
+        StageStore.RowsResult rows = StageStore.loadRows(file.resolveSibling(ProjectFiles.ROWS));
+        assertEquals(List.of(3), rows.ignoredUnitIds());
+        assertEquals(p, ProjectStore.load(file));
+
+        Project again = Pipeline.run(file, () -> { throw new AssertionError("STT"); },
+                () -> { throw new AssertionError("화자 구분"); }, () -> { throw new AssertionError("LLM"); }, (s, f) -> {});
+        assertEquals(p, again);
+    }
 }

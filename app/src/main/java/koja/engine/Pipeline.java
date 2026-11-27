@@ -12,19 +12,23 @@ import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.DoubleConsumer;
+import koja.core.ClauseSplitter;
 import koja.core.Project;
 import koja.core.Project.Speaker;
 import koja.core.Project.SttSegment;
 import koja.core.ProjectFiles;
 import koja.core.ProjectStore;
 import koja.core.SegmentRows;
+import koja.core.StructuredRows;
 import koja.core.StageStore;
 import koja.core.StageStore.DiarResult;
+import koja.core.StageStore.RowsResult;
 import koja.core.StageStore.SttResult;
 import koja.core.StageStore.Turn;
 
 /**
  * 단계를 순서대로 하나씩 돌린다: STT → stt.json, 화자 구분 → diar.json, 그 뒤 화자를 구간에 붙이고 행을 만들어 project.json에 저장.
+ * LLM을 주면 행은 5단계 구조화(rows.json, D-053~D-055·D-073)로, 안 주면 M2 방식(구간 1개 = 행 1개, D-071)으로 만든다.
  * stages.<단계>.done이고 결과 파일이 있으면 그 단계는 건너뛴다(중간에 멈춘 뒤 다시 돌리기).
  * 행은 STT나 화자 구분을 새로 돌렸거나 stages.rows가 없을 때만 다시 만든다. 그 밖에는 사람이 고친 행을 그대로 둔다.
  */
@@ -60,12 +64,18 @@ public final class Pipeline {
      */
     public static Project run(Path projectFile, Opener<? extends Transcriber> stt, Opener<? extends Diarizer> diar,
             Listener listener) throws IOException, InterruptedException {
+        return run(projectFile, stt, diar, null, listener);
+    }
+
+    /** llm이 null이면 M2 행 만들기. 아니면 행을 만들 때 5단계 구조화를 돌린다(화자 구분 엔진을 내린 뒤 연다, 절대 규칙 5). */
+    public static Project run(Path projectFile, Opener<? extends Transcriber> stt, Opener<? extends Diarizer> diar,
+            Opener<? extends LlmClient> llm, Listener listener) throws IOException, InterruptedException {
         if (RUN.isHeldByCurrentThread()) {
             throw new IllegalStateException("파이프라인 실행 중에 다시 실행할 수 없습니다");
         }
         RUN.lockInterruptibly();
         try {
-            return runStages(projectFile, stt, diar, listener);
+            return runStages(projectFile, stt, diar, llm, listener);
         } catch (ClosedByInterruptException e) {
             InterruptedException ie = new InterruptedException("저장 중 취소");
             ie.initCause(e);
@@ -76,7 +86,8 @@ public final class Pipeline {
     }
 
     private static Project runStages(Path projectFile, Opener<? extends Transcriber> stt,
-            Opener<? extends Diarizer> diar, Listener listener) throws IOException, InterruptedException {
+            Opener<? extends Diarizer> diar, Opener<? extends LlmClient> llm, Listener listener)
+            throws IOException, InterruptedException {
         Path dir = projectFile.toAbsolutePath().getParent();
         Path audio = dir.resolve(ProjectFiles.AUDIO);
         Path sttFile = dir.resolve(ProjectFiles.STT);
@@ -121,10 +132,31 @@ public final class Pipeline {
         checkInterrupt();
         project = withSpeakers(project, sttResult, diarResult, newDiar);
         if (newDiar || !done(project, ROWS, projectFile)) {
-            project = withRows(withStage(project, ROWS, ROWS_ENGINE));
+            project = llm == null ? withRows(withStage(project, ROWS, ROWS_ENGINE))
+                    : structure(project, diarResult, llm, dir.resolve(ProjectFiles.ROWS), listener);
         }
         ProjectStore.save(project, projectFile);
         return project;
+    }
+
+    /** 5단계: 단위 분할(D-054) → LLM 구조화 → rows.json → project.json 행·무시 목록 투영(D-073). */
+    private static Project structure(Project p, DiarResult diar, Opener<? extends LlmClient> llm, Path rowsFile,
+            Listener listener) throws IOException, InterruptedException {
+        checkInterrupt();
+        Map<String, String> ids = speakerIds(diar.turns());
+        List<Turn> turns = diar.turns().stream().map(t -> new Turn(t.startMs(), t.endMs(), ids.get(t.speaker()))).toList();
+        List<StageStore.Unit> units = ClauseSplitter.split(p.sttSegments(), turns);
+        listener.progress(ROWS, -1);
+        RowsResult rows;
+        try (LlmClient c = open(llm)) {
+            rows = Structurer.run(c, units, p.videoType(), progress(listener, ROWS)).rows();
+        }
+        checkInterrupt();
+        StageStore.saveRows(rows, rowsFile);
+        StructuredRows.Projection out = StructuredRows.project(rows.rows(), rows.ignoredUnitIds(), rows.units(), p.speakers());
+        Project q = withStage(p, ROWS, rows.engine());
+        return new Project(q.version(), q.source(), q.meta(), rows.videoType(), q.speakers(), q.sttSegments(), out.rows(),
+                out.ignoredSegIds(), q.glossary(), q.stages());
     }
 
     // LocalServer.start는 시작 중 interrupt를 CancellationException으로 알린다. 취소 계약(D-049)대로 InterruptedException으로 바꾼다.
@@ -209,10 +241,7 @@ public final class Pipeline {
     static Project withSpeakers(Project p, SttResult stt, DiarResult diar, boolean newDiar) {
         List<Turn> turns = new ArrayList<>(diar.turns());
         turns.sort(Comparator.comparingLong(Turn::startMs));
-        Map<String, String> ids = new LinkedHashMap<>();
-        for (Turn t : turns) {
-            ids.computeIfAbsent(t.speaker(), k -> "S" + (ids.size() + 1));
-        }
+        Map<String, String> ids = speakerIds(turns);
 
         List<SttSegment> segments = new ArrayList<>();
         for (SttSegment s : stt.segments()) {
@@ -235,6 +264,17 @@ public final class Pipeline {
         }
         return new Project(p.version(), p.source(), p.meta(), p.videoType(), List.copyOf(speakers.values()),
                 List.copyOf(segments), p.rows(), p.ignoredSegIds(), p.glossary(), p.stages());
+    }
+
+    /** 화자 라벨 → 화자표 id. 시작 시각 순으로 처음 나온 라벨부터 S1, S2 …. */
+    private static Map<String, String> speakerIds(List<Turn> turns) {
+        List<Turn> sorted = new ArrayList<>(turns);
+        sorted.sort(Comparator.comparingLong(Turn::startMs));
+        Map<String, String> ids = new LinkedHashMap<>();
+        for (Turn t : sorted) {
+            ids.computeIfAbsent(t.speaker(), k -> "S" + (ids.size() + 1));
+        }
+        return ids;
     }
 
     private static String bestSpeaker(SttSegment s, List<Turn> turns, Map<String, String> ids) {
