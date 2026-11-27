@@ -79,8 +79,9 @@ public final class Structurer {
             }
             progress.accept((double) lo / units.size());
             int hi = lo;
+            // 3분은 청크 첫 단위 시작부터 마지막 단위 끝까지다(D-055).
             while (hi < units.size() && hi - lo < CHUNK_UNITS
-                    && units.get(hi).startMs() < units.get(lo).startMs() + CHUNK_MS) {
+                    && units.get(hi).endMs() <= units.get(lo).startMs() + CHUNK_MS) {
                 hi++;
             }
             hi = Math.max(hi, lo + 1);

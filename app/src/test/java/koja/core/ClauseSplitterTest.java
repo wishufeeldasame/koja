@@ -97,4 +97,17 @@ class ClauseSplitterTest {
         List<Turn> turns = List.of(new Turn(0, 300, "S1"), new Turn(100, 300, "S1"), new Turn(300, 750, "S2"));
         assertEquals("S2", ClauseSplitter.wordSpeaker(words, turns));
     }
+
+    @Test
+    void koCandidateWordsSplitAtMiddleOfGapBetweenPieces() {
+        // 질문(S1) 뒤 답변(S2). 답변의 첫 한국어 후보 단어가 답변 1차 첫 단어보다 먼저 시작해도 답변 쪽에 들어간다.
+        KoCandidate ko = new KoCandidate("질문 답변 이어서", List.of(new Word(0, 1_000, "질문"), new Word(2_800, 3_200, " 답변"),
+                new Word(3_300, 4_000, " 이어서")));
+        SttSegment s = new SttSegment(1, 0, 5_000, "質問 答え", "ja", "S1",
+                List.of(new Word(0, 1_800, "質問"), new Word(3_000, 4_000, "答え")), ko);
+        List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 2_000, "S1"), new Turn(2_500, 4_500, "S2")));
+        assertEquals(2, units.size());
+        assertEquals("질문", units.get(0).ko().text());
+        assertEquals("답변 이어서", units.get(1).ko().text());
+    }
 }

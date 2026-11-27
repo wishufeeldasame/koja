@@ -66,7 +66,10 @@ public final class ClauseSplitter {
         for (Word w : otherWords) {
             int bin = 0;
             for (int i = 1; i < pieces.size(); i++) {
-                if (w.startMs() >= pieces.get(i).getFirst().startMs()) {
+                // 경계는 두 조각 사이 공백의 가운데다. 다음 조각 첫 단어 시각을 쓰면 그보다 먼저 시작한 다음 화자의 후보 단어가
+                // 앞 조각(예: 질문)으로 가서 답변 첫 단어가 빠진다.
+                long boundary = (pieces.get(i - 1).getLast().endMs() + pieces.get(i).getFirst().startMs()) / 2;
+                if (w.startMs() >= boundary) {
                     bin = i;
                 }
             }

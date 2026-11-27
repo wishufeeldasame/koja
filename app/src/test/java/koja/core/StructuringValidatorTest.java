@@ -52,6 +52,9 @@ class StructuringValidatorTest {
     void rejectsMissingReversedIgnoredAndExtraIds() {
         assertTrue(check(List.of(row(RowKind.LINE, 3)), List.of(4), Set.of()).contains("빠진 구간ID [5]"));
         assertTrue(check(List.of(row(RowKind.LINE, 4), row(RowKind.LINE, 3)), List.of(5), Set.of()).contains("순서가 아닙니다"));
+        assertTrue(check(List.of(row(RowKind.LINE, 3, 5), row(RowKind.QUESTION_JA, 4)), List.of(), Set.of()).contains("순서가 아닙니다"));
+        assertNull(check(List.of(row(RowKind.QUESTION_JA, 3, 4), row(RowKind.LINE, 3), row(RowKind.LINE, 4, 5)), List.of(),
+                Set.of(3, 4)));
         assertTrue(check(List.of(row(RowKind.LINE, 3, 4, 5)), List.of(4), Set.of()).contains("무시하면서 행에도 쓴 ID [4]"));
         assertTrue(check(List.of(row(RowKind.LINE, 3, 4, 5, 6)), List.of(), Set.of()).contains("아닌 ID [6]"));
         assertTrue(check(List.of(row(RowKind.LINE, 3, 4, 5)), List.of(2, 1), Set.of()).contains("ignoredUnitIds"));

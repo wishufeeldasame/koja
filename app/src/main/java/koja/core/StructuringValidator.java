@@ -152,7 +152,8 @@ public final class StructuringValidator {
         List<Action> allowed = actionsFor(type, true);
         List<Integer> ko = new ArrayList<>();
         List<Integer> ja = new ArrayList<>();
-        int prevFirst = Integer.MIN_VALUE;
+        int lastNew = Integer.MIN_VALUE;
+        Set<Integer> seen = new HashSet<>();
         for (UnitRow r : rows) {
             if (r == null || r.kind() == null || r.unitIds() == null || r.unitIds().isEmpty() || r.flags() == null
                     || r.unitIds().stream().anyMatch(Objects::isNull) || r.flags().stream().anyMatch(Objects::isNull)) {
@@ -161,11 +162,15 @@ public final class StructuringValidator {
             if (!allowed.contains(Action.valueOf(r.kind().name()))) {
                 return type + " 영상에 쓸 수 없는 행 종류: " + r.kind();
             }
-            // 투영이 행 순서를 그대로 쓰므로 행끼리도 첫 단위 순서여야 한다. 같은 단위로 시작하는 건 D-045 쌍뿐이다.
-            if (r.unitIds().getFirst() < prevFirst) {
-                return "행이 첫 구간ID 순서가 아닙니다: " + r.unitIds();
+            // 투영이 행 순서를 그대로 쓰므로 행 전체에서 단위가 처음 나오는 순서도 오름차순이어야 한다. 다시 나오는 건 D-045 쌍뿐이다.
+            for (int id : r.unitIds()) {
+                if (seen.add(id)) {
+                    if (id < lastNew) {
+                        return "행이 구간ID 순서가 아닙니다: " + r.unitIds();
+                    }
+                    lastNew = id;
+                }
             }
-            prevFirst = r.unitIds().getFirst();
             (r.kind() == RowKind.QUESTION_JA ? ja : ko).addAll(r.unitIds());
         }
         // List.of의 contains(null)은 NPE를 던져 stream으로 본다.

@@ -179,4 +179,13 @@ class StructurerTest {
         assertEquals(List.of(), none.requests);
         assertEquals(List.of(), r.rows().rows());
     }
+
+    @Test
+    void chunkEndsBeforeAUnitWouldPassThreeMinutes() throws Exception {
+        FakeLlm llm = new FakeLlm();
+        List<Unit> us = List.of(new Unit(1, 1, 0, 1_000, "ko", "S1", "가", List.of(), null),
+                new Unit(2, 2, 179_000, 224_000, "ko", "S1", "나", List.of(), null));
+        Structurer.run(llm, us, VideoType.FREE, f -> {});
+        assertEquals(List.of(1), llm.chunks.getFirst());
+    }
 }
