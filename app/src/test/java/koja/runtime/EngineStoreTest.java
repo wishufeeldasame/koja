@@ -52,17 +52,21 @@ class EngineStoreTest {
 
     @Test
     void onlyWindowsDownloadsEnginesAndCudaIsShared() {
-        assertEquals(List.of(EngineStore.WHISPER, EngineStore.CUDA), EngineStore.required(true, false, "Windows 11"));
-        assertEquals(List.of(EngineStore.LLAMA, EngineStore.CUDA), EngineStore.required(false, true, "Windows 11"));
+        Map<String, String> none = Map.of();
+        assertEquals(List.of(EngineStore.WHISPER, EngineStore.CUDA), EngineStore.required(true, false, "Windows 11", none));
+        assertEquals(List.of(EngineStore.LLAMA, EngineStore.CUDA), EngineStore.required(false, true, "Windows 11", none));
         assertEquals(List.of(EngineStore.WHISPER, EngineStore.CUDA, EngineStore.LLAMA),
-                EngineStore.required(true, true, "Windows 11"));
-        assertEquals(List.of(), EngineStore.required(true, true, "Mac OS X"));
+                EngineStore.required(true, true, "Windows 11", none));
+        assertEquals(List.of(), EngineStore.required(true, true, "Mac OS X", none));
+        // 환경 변수로 지정한 실행 파일이 먼저 쓰이므로 받지 않는다.
+        assertEquals(List.of(EngineStore.LLAMA, EngineStore.CUDA), EngineStore.required(true, true, "Windows 11",
+                Map.of("KOJA_WHISPER_SERVER", "C:\\whisper\\whisper-server.exe")));
         // whisper와 cuda는 같은 zip이라 한 번만 받는다.
         assertEquals(735_571_214L, EngineStore.downloadSize(List.of(EngineStore.WHISPER, EngineStore.CUDA)));
     }
 
     @Test
-    void installsFromZipIntoKoreanSpacePathAndCleansDownloads(@TempDir Path temp) throws Exception {
+    void installsFromZipIntoKoreanSpacePathAndDeletesZip(@TempDir Path temp) throws Exception {
         byte[] zip = zip(Map.of("Release/tool.exe", "exe", "Release/lib.dll", "dll", "Release/extra.txt", "x"));
         Engine tool = engine("도구", zip, List.of("Release/tool.exe", "Release/lib.dll"), "v1\n");
         Path dir = temp.resolve("데이터 폴더").resolve("engines");
@@ -75,7 +79,7 @@ class EngineStoreTest {
             assertEquals("MIT", Files.readString(installed.resolve("LICENSE")));
             assertEquals("v1\n", Files.readString(installed.resolve(EngineStore.NOTICE), StandardCharsets.UTF_8));
             assertFalse(Files.exists(installed.resolve("extra.txt")));
-            assertFalse(Files.exists(dir.resolve(".downloads")));
+            assertFalse(Files.exists(dir.resolve(".downloads").resolve("도구.zip")));
             assertEquals(installed.resolve("tool.exe"), store.executable(tool).orElseThrow());
 
             // 버전(고지 문구)이 바뀌면 다시 받아 폴더를 바꾸고 이전 폴더는 남기지 않는다.
@@ -85,6 +89,20 @@ class EngineStoreTest {
             assertTrue(store.isInstalled(next));
             assertFalse(Files.exists(installed.resolve("lib.dll")));
             assertFalse(Files.exists(dir.resolve(".old-도구")));
+        }
+    }
+
+    @Test
+    void installCleansLeftoverZipButKeepsOtherPart(@TempDir Path temp) throws Exception {
+        Engine tool = engine("tool", zip(Map.of("Release/tool.exe", "exe")), List.of("Release/tool.exe"), "v1\n");
+        try (EngineStore store = new EngineStore(temp, new ModelStore(temp, client))) {
+            store.install(List.of(tool), null, null);
+            // 지난번 설치 뒤 지우지 못한 zip과 다른 엔진이 받다 만 .part.
+            Path leftover = Files.writeString(temp.resolve(".downloads").resolve("tool.zip"), "zip");
+            Path otherPart = Files.writeString(temp.resolve(".downloads").resolve("llama.zip.part"), "part");
+            store.install(List.of(tool), null, null);
+            assertFalse(Files.exists(leftover));
+            assertTrue(Files.exists(otherPart));
         }
     }
 

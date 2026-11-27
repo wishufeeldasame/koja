@@ -78,6 +78,11 @@ class AppPathsTest {
     }
 
     @Test
+    void pipelineLockIgnoresDataDirOverride() {
+        assertTrue(AppPaths.pipelineLockFile().endsWith(Path.of("koja", "pipeline.lock")));
+    }
+
+    @Test
     void writableProbeLeavesNoFile(@TempDir Path temp) throws IOException {
         assertTrue(AppPaths.isWritableDirectory(temp));
         try (Stream<Path> files = Files.list(temp)) {

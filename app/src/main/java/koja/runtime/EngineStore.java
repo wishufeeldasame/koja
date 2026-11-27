@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
@@ -123,29 +124,40 @@ public final class EngineStore implements AutoCloseable {
         this.downloads = downloads;
     }
 
-    /** STT·LLM 단계에 필요한 엔진. 윈도우만 받고, 맥·기타는 번들 또는 PATH를 쓴다(D-077). */
+    /**
+     * STT·LLM 단계에 필요한 엔진. 윈도우만 받고, 맥·기타는 번들 또는 PATH를 쓴다(D-077).
+     * 환경 변수로 실행 파일을 지정했으면 그것이 먼저 쓰이므로 받지 않는다(D-078).
+     */
     public static List<Engine> required(boolean stt, boolean llm) {
-        return required(stt, llm, System.getProperty("os.name"));
+        return required(stt, llm, System.getProperty("os.name"), System.getenv());
     }
 
-    static List<Engine> required(boolean stt, boolean llm, String osName) {
+    static List<Engine> required(boolean stt, boolean llm, String osName, Map<String, String> env) {
         if (!AppPaths.isWindows(osName)) {
             return List.of();
         }
         Set<Engine> engines = new LinkedHashSet<>();
-        if (stt) {
+        if (stt && isBlank(env.get(WhisperServer.ENV_EXECUTABLE))) {
             engines.add(WHISPER);
             engines.add(CUDA);
         }
-        if (llm) {
+        if (llm && isBlank(env.get(LlamaServer.ENV_EXECUTABLE))) {
             engines.add(LLAMA);
             engines.add(CUDA);
         }
         return List.copyOf(engines);
     }
 
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     /** 받아 둔 엔진의 실행 파일. 설치가 끝나지 않았거나 버전이 다르면 비어 있다. */
     public static Optional<Path> installedExecutable(Engine engine) {
+        // 윈도우 데이터 폴더를 KOJA_DATA_DIR로 맥에서 함께 써도 윈도우 .exe를 고르지 않는다.
+        if (!AppPaths.isWindows()) {
+            return Optional.empty();
+        }
         return new EngineStore(AppPaths.enginesDir(), null).executable(engine);
     }
 
@@ -190,13 +202,20 @@ public final class EngineStore implements AutoCloseable {
 
     /**
      * 빠진 엔진을 받아 설치한다. 취소되면 받던 zip은 {@code .part}로 남아 다음에 이어 받는다.
-     * 다 설치하면 zip을 지운다(엔진 폴더 1개 + 압축 1개가 같이 남지 않게).
+     * 다 설치됐으면 그 엔진들의 zip을 지운다. 이미 설치돼 있어도 부르면 지난번에 못 지운 zip을 지운다.
+     * 다른 엔진(예: llama)의 받다 만 {@code .part}는 남긴다.
      */
     public void install(List<Engine> engines, ProgressListener listener, CancelToken token) throws IOException {
         List<Engine> todo = missing(engines);
-        if (todo.isEmpty()) {
-            return;
+        if (!todo.isEmpty()) {
+            fetchAndUnpack(todo, listener, token);
         }
+        for (ModelSpec spec : downloadsOf(engines)) {
+            Files.deleteIfExists(downloads.pathOf(spec));
+        }
+    }
+
+    private void fetchAndUnpack(List<Engine> todo, ProgressListener listener, CancelToken token) throws IOException {
         long total = downloadSize(todo);
         long before = 0;
         for (ModelSpec spec : downloadsOf(todo)) {
@@ -211,7 +230,6 @@ public final class EngineStore implements AutoCloseable {
         for (Engine engine : todo) {
             unpack(engine, token);
         }
-        deleteTree(enginesDir.resolve(DOWNLOADS));
     }
 
     private static List<ModelSpec> downloadsOf(List<Engine> engines) {

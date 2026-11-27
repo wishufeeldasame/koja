@@ -18,6 +18,7 @@ public final class WhisperServer {
             "ggerganov/whisper.cpp", "5359861c739e955e79d9a303bcbc70fb988958b1", "ggml-large-v3-turbo.bin",
             1_624_555_275L, "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69");
 
+    public static final String ENV_EXECUTABLE = "KOJA_WHISPER_SERVER";
     static final String DIR = "whisper";
     static final String CUDA_DIR = "cuda";
 
@@ -37,7 +38,7 @@ public final class WhisperServer {
      * 실행 파일은 설치판에 들어 있는 것 → 환경 변수 {@code KOJA_WHISPER_SERVER} → 받아 둔 엔진(engines/whisper) → PATH 순서로 찾는다(D-078).
      */
     public static LocalServer start(Path model) throws IOException {
-        String env = System.getenv("KOJA_WHISPER_SERVER");
+        String env = System.getenv(ENV_EXECUTABLE);
         Optional<Path> bundled = local(AppPaths.bundledExecutable(DIR, "whisper-server"), env,
                 () -> EngineStore.installedExecutable(EngineStore.WHISPER));
         String exe = bundled.map(Path::toString).orElseGet(() -> fallback(env));

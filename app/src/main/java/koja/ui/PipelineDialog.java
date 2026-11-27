@@ -80,7 +80,8 @@ final class PipelineDialog {
         EngineStore engines = new EngineStore(AppPaths.enginesDir());
         List<ModelSpec> missing = LocalEngines.missing(store, stt, diar);
         List<ModelSpec> ensure = LocalEngines.toEnsure(store, stt, diar);
-        List<EngineStore.Engine> missingEngines = engines.missing(EngineStore.required(stt, false));
+        List<EngineStore.Engine> requiredEngines = EngineStore.required(stt, false);
+        List<EngineStore.Engine> missingEngines = engines.missing(requiredEngines);
         if ((!missing.isEmpty() || !missingEngines.isEmpty())
                 && !confirmDownload(owner, store, missing, engines, missingEngines)) {
             store.close();
@@ -97,7 +98,7 @@ final class PipelineDialog {
             @Override
             protected Project call() throws Exception {
                 // Pipeline 잠금은 이 JVM 안에서만 통한다. 앱을 두 번 띄워도 GPU 단계가 겹치지 않게 OS 파일 잠금을 건다(절대 규칙 5).
-                Path lockFile = AppPaths.dataDir().resolve("pipeline.lock");
+                Path lockFile = AppPaths.pipelineLockFile();
                 Files.createDirectories(lockFile.getParent());
                 try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
                         FileLock lock = channel.tryLock()) {
@@ -114,8 +115,9 @@ final class PipelineDialog {
                 if (!missingEngines.isEmpty()) {
                     updateMessage("엔진 받는 중: " + missingEngines.stream().map(EngineStore.Engine::dir)
                             .collect(Collectors.joining(", ")));
-                    engines.install(missingEngines, (done, unused) -> updateProgress(done, total), token);
                 }
+                // 설치돼 있어도 불러 지난번에 못 지운 zip을 정리한다.
+                engines.install(requiredEngines, (done, unused) -> updateProgress(done, total), token);
                 long before = engineBytes;
                 for (int i = 0; i < ensure.size(); i++) {
                     ModelSpec spec = ensure.get(i);

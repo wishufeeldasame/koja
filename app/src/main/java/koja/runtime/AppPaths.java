@@ -107,6 +107,15 @@ public final class AppPaths {
         return requireUserHome(userHome).resolve(".local").resolve("share").resolve(APP_DIR_NAME);
     }
 
+    /**
+     * 처리(GPU 단계) 잠금 파일. 데이터 폴더와 달리 {@code KOJA_DATA_DIR}·설치 폴더와 무관한 OS 기본 폴더에 둬서
+     * 설치판과 개발 실행, 다른 데이터 폴더를 쓰는 두 인스턴스도 같은 잠금을 잡는다(절대 규칙 5).
+     */
+    public static Path pipelineLockFile() {
+        return dataDir(System.getProperty("os.name"), System.getenv("LOCALAPPDATA"), System.getenv("XDG_DATA_HOME"),
+                System.getProperty("user.home")).resolve("pipeline.lock");
+    }
+
     /** 모델 저장 폴더: {@code <데이터 폴더>/models}. */
     public static Path modelsDir() {
         return dataDir().resolve(MODELS_DIR_NAME);
