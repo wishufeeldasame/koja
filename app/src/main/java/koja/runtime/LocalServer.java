@@ -403,6 +403,8 @@ public final class LocalServer implements Closeable {
      */
     public static HttpClient newLoopbackHttpClient(Duration connectTimeout) {
         return HttpClient.newBuilder()
+                // 기본 HTTP_2는 평문에서 Upgrade: h2c를 보내고, cpp-httplib(whisper·llama-server)가 이 요청에 응답하지 않아 교착된다.
+                .version(HttpClient.Version.HTTP_1_1)
                 .proxy(ProxySelector.of(null))
                 .connectTimeout(Objects.requireNonNull(connectTimeout, "connectTimeout"))
                 .build();
