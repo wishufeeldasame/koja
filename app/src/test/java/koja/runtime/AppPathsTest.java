@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,6 +54,36 @@ class AppPathsTest {
         assertEquals(
                 home.resolve(".local").resolve("share").resolve("koja").resolve("models"),
                 AppPaths.modelsDir("Linux", null, null, home.toString()));
+    }
+
+    @Test
+    void dataDirPrefersOverrideThenWritableWindowsInstallDir(@TempDir Path temp) {
+        Path local = temp.resolve("AppData").resolve("Local");
+        Path install = temp.resolve("F 드라이브").resolve("koja");
+        String launcher = install.resolve("koja.exe").toString();
+        Path override = temp.resolve("내 데이터");
+        assertEquals(override, AppPaths.dataDir(override.toString(), launcher, "Windows 11", local.toString(), null,
+                temp.toString(), p -> true));
+        assertEquals(install, AppPaths.dataDir(null, launcher, "Windows 11", local.toString(), null,
+                temp.toString(), p -> true));
+        // Program Files처럼 쓸 수 없는 설치 폴더와 개발 실행(jpackage.app-path 없음)은 %LOCALAPPDATA%\koja.
+        assertEquals(local.resolve("koja"), AppPaths.dataDir(" ", launcher, "Windows 11", local.toString(), null,
+                temp.toString(), p -> false));
+        assertEquals(local.resolve("koja"), AppPaths.dataDir(null, null, "Windows 11", local.toString(), null,
+                temp.toString(), p -> true));
+        // 맥 .app은 읽기 전용으로 두고 Application Support를 쓴다.
+        assertEquals(temp.resolve("Library").resolve("Application Support").resolve("koja"),
+                AppPaths.dataDir(null, "/Applications/koja.app/Contents/MacOS/koja", "Mac OS X", null, null,
+                        temp.toString(), p -> true));
+    }
+
+    @Test
+    void writableProbeLeavesNoFile(@TempDir Path temp) throws IOException {
+        assertTrue(AppPaths.isWritableDirectory(temp));
+        try (Stream<Path> files = Files.list(temp)) {
+            assertEquals(0, files.count());
+        }
+        assertFalse(AppPaths.isWritableDirectory(temp.resolve("없는 폴더")));
     }
 
     @Test

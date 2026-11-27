@@ -8,9 +8,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import koja.runtime.ModelStore.ModelSpec;
 
-/** 번들 whisper-server 위치·실행 인자·모델(D-059, D-060). */
+/** whisper-server 위치(맥 번들, 윈도우 받아 둔 엔진)·실행 인자·모델(D-059, D-060, D-077). */
 public final class WhisperServer {
     /** large-v3-turbo. M0 PoC와 같은 파일(poc/win_setup.py). */
     public static final ModelSpec MODEL = ModelSpec.huggingFace("whisper/ggml-large-v3-turbo.bin",
@@ -33,11 +34,13 @@ public final class WhisperServer {
 
     /**
      * 서버를 띄우고 모델이 올라갈 때까지 기다린다. 다 쓰면 close()로 내려 GPU를 비운다(절대 규칙 5).
-     * 실행 파일은 설치판에 들어 있는 것 → 환경 변수 {@code KOJA_WHISPER_SERVER} → PATH 순서로 찾는다.
+     * 실행 파일은 설치판에 들어 있는 것 → 환경 변수 {@code KOJA_WHISPER_SERVER} → 받아 둔 엔진(engines/whisper) → PATH 순서로 찾는다(D-078).
      */
     public static LocalServer start(Path model) throws IOException {
-        Optional<Path> bundled = AppPaths.bundledExecutable(DIR, "whisper-server");
-        String exe = bundled.map(Path::toString).orElseGet(() -> fallback(System.getenv("KOJA_WHISPER_SERVER")));
+        String env = System.getenv("KOJA_WHISPER_SERVER");
+        Optional<Path> bundled = local(AppPaths.bundledExecutable(DIR, "whisper-server"), env,
+                () -> EngineStore.installedExecutable(EngineStore.WHISPER));
+        String exe = bundled.map(Path::toString).orElseGet(() -> fallback(env));
         String threads = Integer.toString(Math.min(8, Runtime.getRuntime().availableProcessors()));
         // -nlp: verbose_json마다 언어 확률을 따로 한 번 더 계산하지 않게 한다. 언어는 language 필드로 충분하다.
         // 윈도우 whisper-server는 인자를 ANSI 코드 페이지로 받아 UTF-8로 해석해서 한글 경로가 깨진다(whisper.cpp #4018).
@@ -52,8 +55,16 @@ public final class WhisperServer {
                 .start();
     }
 
+    /** 번들이 없고 환경 변수도 없을 때만 받아 둔 엔진을 쓴다. 이 둘은 cuda/를 옆에 두므로 PATH에 cuda를 붙인다. */
+    static Optional<Path> local(Optional<Path> bundled, String env, Supplier<Optional<Path>> downloaded) {
+        if (bundled.isPresent() || (env != null && !env.isBlank())) {
+            return bundled;
+        }
+        return downloaded.get();
+    }
+
     /**
-     * 윈도우 설치판은 CUDA 런타임 DLL이 whisper/ 옆 cuda/에 있어서 PATH 앞에 붙인다(D-060).
+     * 윈도우는 CUDA 런타임 DLL이 whisper/ 옆 cuda/(engines/cuda)에 있어서 PATH 앞에 붙인다(D-060).
      * 윈도우 변수 이름은 보통 {@code Path}다. 자식 환경 맵은 대소문자를 가려서 같은 이름으로 덮어써야 두 개가 되지 않는다.
      */
     static Map<String, String> environment(Path exe, String osName, Map<String, String> env) {

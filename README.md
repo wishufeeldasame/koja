@@ -50,7 +50,7 @@ JavaFX 앱
 ## 기술스택
 
 - Java 25 LTS · JavaFX · Gradle · jpackage (.msi / .dmg)
-- ffmpeg, llama.cpp `llama-server`, whisper.cpp `whisper-server` 내장, sherpa-onnx(VAD·화자 구분)
+- ffmpeg, sherpa-onnx(VAD·화자 구분) 내장. llama.cpp `llama-server`, whisper.cpp `whisper-server`는 맥은 내장, 윈도우는 처음 실행할 때 받는다
 - Google Sheets API v4, OAuth Desktop (`drive.file` 스코프)
 - 빌드: GitHub Actions에서 Windows·macOS 각각 빌드
 
@@ -62,9 +62,11 @@ JavaFX 앱
 ./gradlew run
 ```
 
-설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `scripts/bundle_ffmpeg.sh`로 LGPL ffmpeg를, `scripts/bundle_whisper.sh`로 whisper-server를, `scripts/bundle_llama.sh`로 llama-server를 준비한 뒤 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 설치파일에는 LGPL ffmpeg, whisper.cpp `whisper-server`, llama.cpp `llama-server`(맥 macOS 13.3 이상 Metal / 윈도우 CUDA 12.4, 윈도우는 공유 `cuda/` NVIDIA CUDA 런타임 DLL 포함), `sherpa-onnx` 네이티브와 각각의 고지 파일이 들어 있다. 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
+설치파일은 CI가 맥·윈도우에서 만들어 실행 결과의 아티팩트(`koja-macOS`, `koja-Windows`, 14일 보관)로 올린다. 직접 만들려면 `scripts/bundle_ffmpeg.sh`로 LGPL ffmpeg를(맥은 `scripts/bundle_whisper.sh`로 whisper-server, `scripts/bundle_llama.sh`로 llama-server도) 준비한 뒤 `./gradlew jpackage`(현재 OS용, 결과는 `app/build/jpackage/`). 맥 `.dmg`에는 LGPL ffmpeg, whisper.cpp `whisper-server`, llama.cpp `llama-server`(macOS 13.3 이상 Metal), `sherpa-onnx` 네이티브와 각각의 고지 파일이 들어 있다. 윈도우 `.msi`에는 ffmpeg와 sherpa-onnx만 들어 있고, whisper-server·llama-server·NVIDIA CUDA 런타임(CUDA 12.4, 약 1.09GB)은 처음 전사할 때 공식 릴리스에서 받는다.
 
-가져오기가 끝나면 바로 전사·화자 구분을 돌린다. 처음 한 번은 로컬 모델 4개(약 1.7GB, whisper large-v3-turbo·Silero VAD·pyannote 분할·CAM++)를 받을지 묻고 데이터 폴더(맥 `~/Library/Application Support/koja/models`, 윈도우 `%LOCALAPPDATA%\koja\models`)에 받는다. 취소하거나 실패하면 **처리 → 전사·화자 구분 실행**(Ctrl/Cmd+R)으로 끝난 단계 다음부터 이어 한다. 개발 중 whisper-server는 `KOJA_WHISPER_SERVER` 또는 `PATH`에서 찾는다.
+윈도우 `.msi`는 관리자 권한 없이 사용자별로 설치한다(기본 `%LOCALAPPDATA%\koja`, 설치 창에서 `F:\koja` 같은 다른 폴더를 고를 수 있다). 받은 모델(`models\`)과 엔진(`engines\`)은 설치 폴더에 함께 쌓인다. 쓸 수 없는 폴더를 고르면 `%LOCALAPPDATA%\koja`에 둔다. 제어판에서 제거해도 받은 파일은 남으므로 폴더를 직접 지운다. 이전 `C:\Program Files\koja` 설치본은 먼저 제거한다. 맥은 `~/Library/Application Support/koja`에 받는다. 환경 변수 `KOJA_DATA_DIR`로 이 폴더를 바꿀 수 있다. 서명하지 않은 설치파일이라 처음 열 때 OS 경고가 뜬다.
+
+가져오기가 끝나면 바로 전사·화자 구분을 돌린다. 처음 한 번은 로컬 모델 4개(약 1.7GB, whisper large-v3-turbo·Silero VAD·pyannote 분할·CAM++)와 윈도우 엔진(whisper·cuda 약 736MB)을 받을지 묻고 데이터 폴더의 `models/`·`engines/`에 받는다. 취소하거나 실패하면 **처리 → 전사·화자 구분 실행**(Ctrl/Cmd+R)으로 끝난 단계 다음부터 이어 한다. 개발 중 whisper-server는 `KOJA_WHISPER_SERVER`, 받아 둔 `engines/`, `PATH` 순서로 찾는다.
 
 가져오기에는 ffmpeg가 필요하다. 개발 중에는 `PATH`의 `ffmpeg`를 쓰고, 다른 것을 쓰려면 환경 변수 `KOJA_FFMPEG`에 경로를 준다. 설치판에는 LGPL 빌드를 넣을 예정이다(D-037).
 
