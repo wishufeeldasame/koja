@@ -152,4 +152,11 @@ class StructuredRowsTest {
         assertEquals(2, StructuredRows.toRows(List.of(item(1, Action.LINE, true), item(2, Action.LINE, false)), units)
                 .rows().size());
     }
+
+    @Test
+    void longPauseStartsNewRow() {
+        Map<Integer, Unit> units = map(unit(1, 1, 0, "S1", "ko", "앞", null), unit(2, 2, 10_000, "S1", "ko", "뒤", null));
+        assertEquals(2, StructuredRows.toRows(List.of(item(1, Action.LINE, true), item(2, Action.LINE, false)), units)
+                .rows().size());
+    }
 }

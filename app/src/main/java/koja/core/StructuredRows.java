@@ -26,6 +26,8 @@ public final class StructuredRows {
     static final int MAX_MERGE_CUR_HANGUL = 16;
     static final int MAX_MERGE_TOTAL_HANGUL = 32;
     static final long MAX_MERGE_CUR_MS = 4_500;
+    /** 같은 화자라도 이만큼 쉬었다 말하면 새 행이다(검수 때 그 시각으로 이동). 값은 추정, eval/로 조정. */
+    static final long MAX_MERGE_GAP_MS = 2_000;
     private static final String KOREAN = "ko";
     private static final String JAPANESE = "ja";
 
@@ -148,7 +150,7 @@ public final class StructuredRows {
             cur += ClauseSplitter.hangul(koText(units.get(id)));
         }
         long ms = prev.endMs() - units.get(row.ids.getFirst()).startMs();
-        return cur < MAX_MERGE_CUR_HANGUL && ms < MAX_MERGE_CUR_MS
+        return cur < MAX_MERGE_CUR_HANGUL && ms < MAX_MERGE_CUR_MS && u.startMs() - prev.endMs() < MAX_MERGE_GAP_MS
                 && cur + ClauseSplitter.hangul(koText(u)) <= MAX_MERGE_TOTAL_HANGUL;
     }
 

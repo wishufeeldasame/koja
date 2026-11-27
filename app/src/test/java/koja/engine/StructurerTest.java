@@ -188,4 +188,14 @@ class StructurerTest {
         Structurer.run(llm, us, VideoType.FREE, f -> {});
         assertEquals(List.of(1), llm.chunks.getFirst());
     }
+
+    @Test
+    void fallbackChunkIsSettledWhole() throws Exception {
+        FakeLlm llm = new FakeLlm();
+        llm.chunk = ids -> ids.getFirst() == 1 ? "broken" : items(ids, "IGNORE", true);
+        Structurer.Result r = Structurer.run(llm, units(30), VideoType.FREE, f -> {});
+        List<Integer> lines = r.rows().rows().stream().flatMap(x -> x.unitIds().stream()).toList();
+        assertEquals(Structurer.CHUNK_UNITS, lines.size());
+        assertEquals(Structurer.CHUNK_UNITS + 1, (int) llm.chunks.getLast().getFirst());
+    }
 }

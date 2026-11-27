@@ -85,9 +85,12 @@ public final class Structurer {
                 hi++;
             }
             hi = Math.max(hi, lo + 1);
+            int fallbacks = st[3];
             Chunk chunk = ask(llm, units, byId, lo, hi, doneKind, table, type, st);
             st[0]++;
-            Settled s = StructuredRows.settle(chunk, units.get(lo).id(), hi == units.size());
+            // 대체 청크는 끝 행을 다시 묻지 않고 통째로 확정한다. 다음 청크가 그 단위를 무시하면 대체 행이 사라진다(D-032).
+            boolean fellBack = st[3] > fallbacks;
+            Settled s = StructuredRows.settle(chunk, units.get(lo).id(), hi == units.size() || fellBack);
             for (UnitRow r : s.rows()) {
                 rows.add(r);
                 for (int id : r.unitIds()) {
