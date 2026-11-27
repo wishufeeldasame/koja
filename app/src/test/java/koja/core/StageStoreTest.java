@@ -117,6 +117,9 @@ class StageStoreTest {
         assertThrows(IOException.class, () -> StageStore.saveRows(rows(List.of(ROWS.get(0), ROWS.get(1),
                 new UnitRow("r1", RowKind.LINE, List.of(2), List.of())), List.of(3)), file));
         assertEquals(before, Files.readString(file));
+        Files.writeString(file, before.replaceFirst("\"segId\" : 1", "\"segId\" : 0"));
+        assertThrows(IOException.class, () -> StageStore.loadRows(file));
+        Files.writeString(file, before);
 
         Files.writeString(file, before.replace("\"ignoredUnitIds\" : [ 3 ]", "\"ignoredUnitIds\" : [ ]"));
         assertThrows(IOException.class, () -> StageStore.loadRows(file));

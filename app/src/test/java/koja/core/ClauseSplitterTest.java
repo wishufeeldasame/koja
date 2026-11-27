@@ -139,4 +139,14 @@ class ClauseSplitterTest {
         List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 2_000, "S1"), new Turn(3_000, 7_000, "S2")));
         assertEquals(1, units.size());
     }
+
+    @Test
+    void candidateWordStraddlingBoundaryGoesToLargerOverlap() {
+        // 경계 2,400ms 직전(2,300)에 시작해 답변 쪽으로 길게(3,200까지) 걸친 후보 단어는 답변 쪽이다.
+        KoCandidate ko = new KoCandidate("질문 답변", List.of(new Word(0, 1_000, "질문"), new Word(2_300, 3_200, " 답변")));
+        SttSegment s = new SttSegment(1, 0, 5_000, "質問 答え", "ja", "S1",
+                List.of(new Word(0, 1_800, "質問"), new Word(3_000, 4_000, " 答え")), ko);
+        List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 2_000, "S1"), new Turn(2_500, 4_500, "S2")));
+        assertEquals("답변", units.get(1).ko().text());
+    }
 }

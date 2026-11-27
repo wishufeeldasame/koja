@@ -64,15 +64,24 @@ public final class ClauseSplitter {
         for (int i = 0; i < pieces.size(); i++) {
             bins.add(new ArrayList<>());
         }
+        // 경계는 두 조각 사이 공백의 가운데다. 다음 조각 첫 단어 시각을 쓰면 그보다 먼저 시작한 다음 화자의 후보 단어가
+        // 앞 조각(예: 질문)으로 가서 답변 첫 단어가 빠진다.
+        long[] bounds = new long[pieces.size() + 1];
+        bounds[0] = Long.MIN_VALUE;
+        bounds[pieces.size()] = Long.MAX_VALUE;
+        for (int i = 1; i < pieces.size(); i++) {
+            long prevEnd = pieces.get(i - 1).stream().mapToLong(Word::endMs).max().orElse(0);
+            bounds[i] = (prevEnd + pieces.get(i).getFirst().startMs()) / 2;
+        }
         int lastBin = 0;
         for (Word w : otherWords) {
+            // 경계를 걸친 단어는 더 길게 겹친 조각에 넣는다(같으면 앞 조각).
             int bin = 0;
-            for (int i = 1; i < pieces.size(); i++) {
-                // 경계는 두 조각 사이 공백의 가운데다. 다음 조각 첫 단어 시각을 쓰면 그보다 먼저 시작한 다음 화자의 후보 단어가
-                // 앞 조각(예: 질문)으로 가서 답변 첫 단어가 빠진다.
-                long prevEnd = pieces.get(i - 1).stream().mapToLong(Word::endMs).max().orElse(0);
-                long boundary = (prevEnd + pieces.get(i).getFirst().startMs()) / 2;
-                if (w.startMs() >= boundary) {
+            long best = -1;
+            for (int i = 0; i < pieces.size(); i++) {
+                long ov = Math.min(w.endMs(), bounds[i + 1]) - Math.max(w.startMs(), bounds[i]);
+                if (ov > best) {
+                    best = ov;
                     bin = i;
                 }
             }

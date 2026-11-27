@@ -128,7 +128,8 @@ public final class StageStore {
             throw new IOException("rows.json 버전이 " + CURRENT_VERSION + "이 아니거나 필수 항목이 없습니다: " + file);
         }
         int prevId = 0;
-        int prevSeg = 0;
+        // STT 구간 id는 1부터라 0은 없는 구간을 가리킨다.
+        int prevSeg = 1;
         for (Unit u : r.units()) {
             if (u == null || u.id() != prevId + 1 || u.segId() < prevSeg || u.startMs() < 0 || u.endMs() < u.startMs()
                     || u.text() == null || !validWords(u.words())
