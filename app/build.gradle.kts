@@ -316,8 +316,10 @@ tasks.register<Exec>("jpackage") {
         val home = jpackageLauncher.get().metadata.installationPath.asFile
         executable = home.resolve(if (windows) "bin/jpackage.exe" else "bin/jpackage").path
         val type = when {
-            // 사용자별 설치: 기본 %LOCALAPPDATA%\koja, 관리자 권한 없이 설치 폴더에 models·engines를 함께 둔다(D-076).
-            windows -> listOf("--type", "msi", "--win-menu", "--win-shortcut", "--win-dir-chooser", "--win-per-user-install")
+            // 사용자별 설치: 기본 %LOCALAPPDATA%\koja\program, 관리자 권한 없이 설치한다. jpackage .msi는 제거·업그레이드 때
+            // 설치 폴더를 통째로 지워서(RemoveFolderEx) 받은 models·engines는 부모 koja\에 둔다(D-076).
+            windows -> listOf("--type", "msi", "--win-menu", "--win-shortcut", "--win-dir-chooser", "--win-per-user-install",
+                "--install-dir", "koja\\program")
             os.contains("mac") -> listOf("--type", "dmg")
             else -> listOf("--type", "app-image")
         }

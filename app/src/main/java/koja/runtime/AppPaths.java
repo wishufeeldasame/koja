@@ -13,6 +13,8 @@ public final class AppPaths {
     public static final String APP_DIR_NAME = "koja";
     public static final String MODELS_DIR_NAME = "models";
     public static final String ENV_DATA_DIR = "KOJA_DATA_DIR";
+    /** 윈도우 .msi 설치 하위 폴더 이름(jpackage --install-dir koja\program). 데이터는 그 부모에 둔다(D-076). */
+    public static final String WINDOWS_INSTALL_SUBDIR = "program";
 
     private AppPaths() {}
 
@@ -48,8 +50,8 @@ public final class AppPaths {
     }
 
     /**
-     * 모델·엔진·잠금 파일을 두는 한 폴더(D-076). {@code KOJA_DATA_DIR} → 윈도우 설치판은 쓸 수 있는 설치 폴더
-     * → OS 기본 폴더(Win {@code %LOCALAPPDATA%\koja}, Mac {@code ~/Library/Application Support/koja}) 순서.
+     * 모델·엔진을 두는 한 폴더(D-076). {@code KOJA_DATA_DIR} → 윈도우 설치판은 {@code <폴더>\program} 설치의 부모
+     * {@code <폴더>}(쓸 수 있을 때) → OS 기본 폴더(Win {@code %LOCALAPPDATA%\koja}, Mac {@code ~/Library/Application Support/koja}) 순서.
      */
     public static Path dataDir() {
         Path dir = cachedDataDir;
@@ -75,15 +77,23 @@ public final class AppPaths {
                         + " (따옴표 없이 폴더 경로만 적으세요)", e);
             }
         }
-        // 윈도우 사용자별 설치(%LOCALAPPDATA%\koja, 또는 설치 창에서 고른 F:\koja)는 앱과 받은 파일을 한 폴더에 둔다.
-        // Program Files처럼 쓸 수 없는 곳을 골랐으면 OS 기본 폴더로 간다.
-        if (isWindows(osName) && appPath != null && !appPath.isBlank()) {
-            Path installDir = Path.of(appPath).toAbsolutePath().getParent();
-            if (installDir != null && writable.test(installDir)) {
-                return installDir;
-            }
+        Path fallback = dataDir(osName, localAppData, xdgDataHome, userHome);
+        if (!isWindows(osName) || appPath == null || appPath.isBlank()) {
+            return fallback;
         }
-        return dataDir(osName, localAppData, xdgDataHome, userHome);
+        // jpackage .msi는 제거·업그레이드 때 설치 폴더를 통째로 지운다(RemoveFolderEx). 받은 파일은 설치 폴더 밖에 둔다.
+        // 기본 %LOCALAPPDATA%\koja\program 또는 설치 창에서 고른 F:\koja\program이면 부모 koja\에 앱과 함께 모은다.
+        Path installDir = Path.of(appPath).toAbsolutePath().getParent();
+        if (installDir == null) {
+            return fallback;
+        }
+        Path parent = installDir.getParent();
+        if (parent != null && installDir.getFileName().toString().equalsIgnoreCase(WINDOWS_INSTALL_SUBDIR)
+                && writable.test(parent)) {
+            return parent;
+        }
+        // 설치 폴더를 %LOCALAPPDATA%\koja로 바꿔 골랐으면 기본 폴더도 지워질 자리라 옆 폴더를 쓴다.
+        return fallback.startsWith(installDir) ? installDir.resolveSibling(APP_DIR_NAME + "-data") : fallback;
     }
 
     /** 윈도우 ACL·읽기 전용 매체는 {@link Files#isWritable}이 맞지 않을 수 있어 파일을 실제로 만들어 본다. */

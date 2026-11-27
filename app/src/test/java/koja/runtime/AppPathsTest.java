@@ -57,15 +57,22 @@ class AppPathsTest {
     }
 
     @Test
-    void dataDirPrefersOverrideThenWritableWindowsInstallDir(@TempDir Path temp) {
+    void dataDirPrefersOverrideThenParentOfWindowsProgramDir(@TempDir Path temp) {
         Path local = temp.resolve("AppData").resolve("Local");
-        Path install = temp.resolve("F 드라이브").resolve("koja");
-        String launcher = install.resolve("koja.exe").toString();
+        Path root = temp.resolve("F 드라이브").resolve("koja");
+        String launcher = root.resolve("program").resolve("koja.exe").toString();
         Path override = temp.resolve("내 데이터");
         assertEquals(override, AppPaths.dataDir(override.toString(), launcher, "Windows 11", local.toString(), null,
                 temp.toString(), p -> true));
-        assertEquals(install, AppPaths.dataDir(null, launcher, "Windows 11", local.toString(), null,
+        // 설치 폴더(program\)는 제거·업그레이드 때 통째로 지워져 그 부모에 둔다.
+        assertEquals(root, AppPaths.dataDir(null, launcher, "Windows 11", local.toString(), null,
                 temp.toString(), p -> true));
+        // program\ 없이 고른 다른 폴더는 OS 기본 폴더.
+        assertEquals(local.resolve("koja"), AppPaths.dataDir(null, root.resolve("koja.exe").toString(), "Windows 11",
+                local.toString(), null, temp.toString(), p -> true));
+        // 설치 폴더가 %LOCALAPPDATA%\koja 자체면 기본 폴더도 지워질 자리라 옆 koja-data.
+        assertEquals(local.resolve("koja-data"), AppPaths.dataDir(null, local.resolve("koja").resolve("koja.exe")
+                .toString(), "Windows 11", local.toString(), null, temp.toString(), p -> true));
         // Program Files처럼 쓸 수 없는 설치 폴더와 개발 실행(jpackage.app-path 없음)은 %LOCALAPPDATA%\koja.
         assertEquals(local.resolve("koja"), AppPaths.dataDir(" ", launcher, "Windows 11", local.toString(), null,
                 temp.toString(), p -> false));
