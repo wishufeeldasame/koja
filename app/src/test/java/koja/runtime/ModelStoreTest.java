@@ -428,7 +428,9 @@ class ModelStoreTest {
         ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
                 "stall.bin", baseUri.resolve("/stall.bin"), payload.length, expectedSha);
 
-        assertThrows(IOException.class, () -> store.ensureDownloaded(spec));
+        // 서버가 5초 뒤 연결을 닫아도 IOException이 나므로, 래치 해제 전에 워치독이 끊었는지 메시지로 확인한다.
+        IOException stall = assertThrows(IOException.class, () -> store.ensureDownloaded(spec));
+        assertTrue(stall.getMessage().contains("본문 수신 시간 초과"), stall.toString());
         releaseStall.countDown();
 
         Path part = store.partPathOf(spec);
