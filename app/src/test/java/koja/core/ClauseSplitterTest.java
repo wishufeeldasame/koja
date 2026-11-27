@@ -62,4 +62,13 @@ class ClauseSplitterTest {
     void countsHangulOnly() {
         assertEquals(3, ClauseSplitter.hangul("T1 가나 다!"));
     }
+
+    @Test
+    void unitEndCoversOutOfOrderWords() {
+        SttSegment s = new SttSegment(1, 0, 5_000, "가 나. 다", "ko", null,
+                List.of(new Word(1_000, 2_000, " 가"), new Word(500, 900, " 나."), new Word(3_000, 3_500, " 다")), null);
+        Unit first = ClauseSplitter.split(List.of(s), List.of()).getFirst();
+        assertEquals(1_000, first.startMs());
+        assertEquals(2_000, first.endMs());
+    }
 }

@@ -73,7 +73,8 @@ public final class ClauseSplitter {
             List<Word> p = List.copyOf(pieces.get(i));
             List<Word> o = List.copyOf(bins.get(i));
             long start = p.getFirst().startMs();
-            long end = p.getLast().endMs();
+            // 단어 시각이 역전된 STT에서도 단위가 0 ≤ startMs ≤ endMs를 지키게 한다(rows.json 검증).
+            long end = Math.max(start, p.stream().mapToLong(Word::endMs).max().orElse(start));
             Unit u;
             if (ko == null) {
                 u = new Unit(0, s.id(), start, end, s.lang(), null, join(p), p, null);

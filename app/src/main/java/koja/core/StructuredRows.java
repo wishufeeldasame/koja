@@ -142,9 +142,9 @@ public final class StructuredRows {
                 && cur + ClauseSplitter.hangul(koText(u)) <= MAX_MERGE_TOTAL_HANGUL;
     }
 
-    /** 한국어 행에 들어가는 텍스트: 한국어 단위는 1차 원문, 아니면 한국어 후보(D-040). */
+    /** 한국어 행에 들어가는 텍스트: 한국어 단위는 1차 원문, 아니면 한국어 후보, 후보가 없으면 빈 값(D-040·D-071). */
     static String koText(Unit u) {
-        return KOREAN.equals(u.lang()) || u.ko() == null ? u.text() : u.ko().text();
+        return KOREAN.equals(u.lang()) ? u.text() : u.ko() == null ? "" : u.ko().text();
     }
 
     private static List<Word> koWords(Unit u) {

@@ -133,6 +133,9 @@ public final class Structurer {
                 content = llm.complete(request).content();
             } catch (OutputTruncatedException e) {
                 continue;
+            } catch (ContextLengthExceededException e) {
+                // 발췌는 길이가 정해져 있어 드물다(추정). 넘치면 다시 보내지 않고 미확정으로 진행한다(D-067).
+                break;
             }
             Analysis a = parseAnalysis(content, speakers);
             if (a != null) {

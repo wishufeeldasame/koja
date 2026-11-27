@@ -121,4 +121,12 @@ class StructuredRowsTest {
         assertEquals(List.of(Flag.SPEAKER_UNSURE, Flag.TEXT_UNSURE), unconfirmed.rows().get(1).flags());
         assertEquals(List.of(), unconfirmed.rows().get(0).flags());
     }
+
+    @Test
+    void nonKoreanUnitWithoutCandidateLeavesKoreanEmpty() {
+        List<Unit> units = List.of(unit(1, 1, 0, "S1", "en", "hello", null));
+        StructuredRows.Projection p = StructuredRows.project(
+                List.of(new UnitRow("r1", RowKind.LINE, List.of(1), List.of(Flag.TEXT_UNSURE))), List.of(), units, List.of());
+        assertEquals("", p.rows().getFirst().ko());
+    }
 }
