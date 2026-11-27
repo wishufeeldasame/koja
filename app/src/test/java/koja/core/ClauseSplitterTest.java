@@ -149,4 +149,11 @@ class ClauseSplitterTest {
         List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 2_000, "S1"), new Turn(2_500, 4_500, "S2")));
         assertEquals("답변", units.get(1).ko().text());
     }
+
+    @Test
+    void doesNotCutWhereWordTimesGoBackwards() {
+        SttSegment s = new SttSegment(1, 0, 3_000, "가나다라마. 바사", "ko", null,
+                List.of(new Word(1_000, 1_400, "가나다라마."), new Word(500, 900, " 바사")), null);
+        assertEquals(1, ClauseSplitter.split(List.of(s), List.of()).size());
+    }
 }

@@ -68,10 +68,11 @@ public final class StructuredRows {
                 }
                 case QUESTION_JA, BOTH_JA_LINE -> {
                     ko = null;
-                    if (ja != null && !it.newRow()) {
+                    // 질문도 화자가 바뀌거나 화자를 모르면 새 행이다(한 질문 = 한 행).
+                    if (ja != null && !it.newRow() && ja.speaker != null && ja.speaker.equals(u.speakerId())) {
                         ja.add(it.id(), it.flags());
                     } else {
-                        ja = new Building(RowKind.QUESTION_JA, null, it.id(), it.flags());
+                        ja = new Building(RowKind.QUESTION_JA, u.speakerId(), it.id(), it.flags());
                         rows.add(ja);
                     }
                     if (it.action() == Action.BOTH_JA_LINE) {
@@ -94,8 +95,9 @@ public final class StructuredRows {
 
     /** 검증을 끝내 통과하지 못한 청크는 단위마다 LINE 한 행으로 남긴다(빠뜨리지 않기, D-032). */
     public static Chunk fallback(List<Unit> chunk) {
-        return new Chunk(chunk.stream().map(u -> new UnitRow(null, RowKind.LINE, List.of(u.id()), autoFlags(u))).toList(),
-                List.of());
+        // LLM이 실제 한국어 발언인지 판단하지 않았으므로 비한국어 단위의 한국어 후보는 검수 표시를 단다(절대 규칙 2).
+        return new Chunk(chunk.stream().map(u -> new UnitRow(null, RowKind.LINE, List.of(u.id()),
+                KOREAN.equals(u.lang()) ? autoFlags(u) : union(autoFlags(u), List.of(Flag.TEXT_UNSURE)))).toList(), List.of());
     }
 
     /**

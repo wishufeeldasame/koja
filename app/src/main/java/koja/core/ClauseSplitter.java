@@ -129,6 +129,10 @@ public final class ClauseSplitter {
     }
 
     private static boolean cutBefore(List<Word> cur, Word w, List<Turn> turns, boolean korean) {
+        // 시각이 역전된 경계에서 나누면 뒤 행이 앞 행보다 이른 시각을 가리킨다. STT 시각·순서는 고치지 않고 나누지 않는다.
+        if (w.startMs() < cur.getFirst().startMs()) {
+            return false;
+        }
         Word prev = cur.getLast();
         long dur = prev.endMs() - cur.getFirst().startMs();
         long gap = w.startMs() - prev.endMs();

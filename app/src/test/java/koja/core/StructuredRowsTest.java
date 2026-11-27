@@ -159,4 +159,13 @@ class StructuredRowsTest {
         assertEquals(2, StructuredRows.toRows(List.of(item(1, Action.LINE, true), item(2, Action.LINE, false)), units)
                 .rows().size());
     }
+
+    @Test
+    void japaneseQuestionSplitsOnSpeakerChangeAndFallbackFlagsCandidates() {
+        Map<Integer, Unit> units = map(unit(1, 1, 0, "S1", "ja", "質問", null), unit(2, 2, 1_000, "S2", "ja", "別の質問", null));
+        assertEquals(2, StructuredRows.toRows(List.of(item(1, Action.QUESTION_JA, true), item(2, Action.QUESTION_JA, false)),
+                units).rows().size());
+        Chunk out = StructuredRows.fallback(List.of(unit(3, 3, 0, "S1", "ja", "質問", "질문입니다")));
+        assertEquals(List.of(Flag.TEXT_UNSURE), out.rows().getFirst().flags());
+    }
 }
