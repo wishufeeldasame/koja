@@ -382,7 +382,7 @@ class ModelStoreTest {
         byte[] payload = sampleBytes(120_000);
         server.createContext("/slow-listener.bin", ex -> serveRange(ex, payload, true));
 
-        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofMillis(200));
+        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofSeconds(1));
         ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
                 "slow-listener.bin", baseUri.resolve("/slow-listener.bin"), payload.length, sha256(payload));
         AtomicBoolean slept = new AtomicBoolean();
@@ -391,7 +391,7 @@ class ModelStoreTest {
         Path completed = store.ensureDownloaded(spec, (got, total) -> {
             if (got > 0 && slept.compareAndSet(false, true)) {
                 try {
-                    Thread.sleep(600);
+                    Thread.sleep(1_500);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
