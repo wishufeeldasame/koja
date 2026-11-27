@@ -38,6 +38,8 @@ public final class Pipeline {
     public static final String ROWS = "rows";
     /** M2 행 만들기(구간 1개 = 행 1개, D-071). M3 구조화가 이 단계를 대신한다. */
     static final String ROWS_ENGINE = "segment-1to1";
+    /** 발언이 없어 LLM 없이 만든 빈 구조화 결과. */
+    static final String EMPTY_ROWS_ENGINE = "structure-empty";
 
     /** 엔진은 단계 직전에 연다. 서버를 띄우는 데 실패할 수 있어 IOException을 던진다. */
     @FunctionalInterface
@@ -131,7 +133,7 @@ public final class Pipeline {
 
         checkInterrupt();
         project = withSpeakers(project, sttResult, diarResult, newDiar);
-        if (newDiar || !done(project, ROWS, projectFile)) {
+        if (newDiar || !rowsDone(project, projectFile)) {
             project = llm == null ? withRows(withStage(project, ROWS, ROWS_ENGINE))
                     : structure(project, projectFile, diarResult, llm, dir.resolve(ProjectFiles.ROWS), listener);
         }
@@ -150,8 +152,13 @@ public final class Pipeline {
         List<StageStore.Unit> units = ClauseSplitter.split(p.sttSegments(), turns);
         listener.progress(ROWS, -1);
         RowsResult rows;
-        try (LlmClient c = open(llm)) {
-            rows = Structurer.run(c, units, p.videoType(), progress(listener, ROWS)).rows();
+        if (units.isEmpty()) {
+            // 발언이 없으면 LLM을 열지 않는다(모델 다운로드·서버 기동 낭비).
+            rows = Structurer.empty(EMPTY_ROWS_ENGINE, p.videoType()).rows();
+        } else {
+            try (LlmClient c = open(llm)) {
+                rows = Structurer.run(c, units, p.videoType(), progress(listener, ROWS)).rows();
+            }
         }
         checkInterrupt();
         StageStore.saveRows(rows, rowsFile);
@@ -188,7 +195,18 @@ public final class Pipeline {
 
     /** 다음 실행이 rows를 새로 만드는지(사람이 고친 행이 바뀐다). runStages의 조건과 같다. */
     public static boolean rebuildsRows(Path projectFile, Project p) {
-        return pending(projectFile, p, STT) || pending(projectFile, p, DIAR) || !done(p, ROWS, projectFile);
+        return pending(projectFile, p, STT) || pending(projectFile, p, DIAR) || !rowsDone(p, projectFile);
+    }
+
+    /**
+     * 구조화 행은 rows.json이 있어야 완료다. 일부만 무시된 구간은 rows.json에만 남아 project.json으로 되살릴 수 없다(D-073).
+     * 파일이 없으면 다시 만들 대상이 되고, 처리 창은 rebuildsRows로 사람이 고친 행을 덮기 전에 묻는다.
+     */
+    private static boolean rowsDone(Project p, Path projectFile) {
+        Project.Stage s = p.stages() == null ? null : p.stages().get(ROWS);
+        Path file = s == null || ROWS_ENGINE.equals(s.engine()) ? projectFile
+                : projectFile.toAbsolutePath().resolveSibling(ProjectFiles.ROWS);
+        return done(p, ROWS, file);
     }
 
     private static boolean done(Project p, String stage, Path file) {

@@ -452,4 +452,15 @@ class PipelineTest {
         assertFalse(saved.stages().containsKey(Pipeline.ROWS));
         assertEquals(2, saved.speakers().size());
     }
+
+    @Test
+    void missingRowsJsonMakesStructuredRowsPending() throws Exception {
+        Path file = newProject(List.of());
+        Project p = Pipeline.run(file, FakeStt::new, FakeDiar::new, this::fakeLlm, (s, f) -> {});
+        assertFalse(Pipeline.rebuildsRows(file, p));
+
+        Files.delete(file.resolveSibling(ProjectFiles.ROWS));
+
+        assertTrue(Pipeline.rebuildsRows(file, p));
+    }
 }

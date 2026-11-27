@@ -32,7 +32,9 @@ public final class ClauseSplitter {
             List<Unit> pieces = splitSegment(s, turns);
             for (Unit u : pieces) {
                 // 나누지 않은 구간은 파이프라인이 단어 구간으로 붙인 화자를 쓴다. VAD 구간 전체로 다시 재면 단어 밖 턴이 이긴다(D-064).
-                String speaker = pieces.size() == 1 ? null : speakerOf(u.startMs(), u.endMs(), turns);
+                // 나뉜 단위는 단어 구간과 겹친 턴만 본다. 단어 사이 공백의 다른 화자 턴이 이기지 않게 한다.
+                String speaker = pieces.size() == 1 ? null
+                        : wordSpeaker(u.words().isEmpty() && u.ko() != null ? u.ko().words() : u.words(), turns);
                 units.add(new Unit(units.size() + 1, s.id(), u.startMs(), u.endMs(), u.lang(),
                         speaker != null ? speaker : s.speakerId(), u.text(), u.words(), u.ko()));
             }
@@ -126,6 +128,31 @@ public final class ClauseSplitter {
                 || (h >= 10 && KO_END.matcher(pt).find())
                 || (h >= 14 && KO_CONN.matcher(pt).find())
                 || h >= 24;
+    }
+
+    /**
+     * 단어마다 턴과 겹친 시간을 화자별로 더해 가장 긴 화자. 없으면 null.
+     * shortcut: 같은 화자 턴끼리 겹치면 두 번 센다. diar.json 턴은 화자별로 겹치지 않아(추정) 그대로 둔다.
+     */
+    static String wordSpeaker(List<Word> words, List<Turn> turns) {
+        java.util.Map<String, Long> total = new java.util.LinkedHashMap<>();
+        for (Word w : words) {
+            for (Turn t : turns) {
+                long ov = Math.min(w.endMs(), t.endMs()) - Math.max(w.startMs(), t.startMs());
+                if (ov > 0) {
+                    total.merge(t.speaker(), ov, Long::sum);
+                }
+            }
+        }
+        String who = null;
+        long best = 0;
+        for (java.util.Map.Entry<String, Long> e : total.entrySet()) {
+            if (e.getValue() > best) {
+                best = e.getValue();
+                who = e.getKey();
+            }
+        }
+        return who;
     }
 
     /** 겹침이 가장 긴 턴 하나의 화자. 없으면 null. */

@@ -44,7 +44,7 @@ public final class StructuredRows {
         Building ja = null;
         for (Item it : items) {
             Unit u = units.get(it.id());
-            switch (it.action()) {
+            switch (effective(it.action(), u)) {
                 case IGNORE -> {
                     ignored.add(it.id());
                     ko = null;
@@ -52,7 +52,7 @@ public final class StructuredRows {
                 }
                 case LINE, QUESTION_KO -> {
                     ja = null;
-                    RowKind kind = RowKind.valueOf(it.action().name());
+                    RowKind kind = RowKind.valueOf(effective(it.action(), u).name());
                     List<Flag> fl = union(it.flags(), autoFlags(u));
                     if (ko != null && !it.newRow() && ko.kind == kind && same(ko.speaker, u.speakerId())
                             && canMerge(ko, u, units)) {
@@ -78,6 +78,14 @@ public final class StructuredRows {
             }
         }
         return new Chunk(rows.stream().map(Building::row).toList(), List.copyOf(ignored));
+    }
+
+    /**
+     * 한국어 단위에는 일본어 원문이 없어 질문 영역에 쓰면 한국어가 시간 없이 일본어 칸에 들어간다. 거부하면 E4B가 재시도에서
+     * 못 고쳐 대체 청크가 늘었다(맥 실측). 빠뜨리지 않도록 LINE으로 남겨 검수에 맡긴다(D-032).
+     */
+    static Action effective(Action action, Unit u) {
+        return (action == Action.QUESTION_JA || action == Action.BOTH_JA_LINE) && KOREAN.equals(u.lang()) ? Action.LINE : action;
     }
 
     /** 검증을 끝내 통과하지 못한 청크는 단위마다 LINE 한 행으로 남긴다(빠뜨리지 않기, D-032). */

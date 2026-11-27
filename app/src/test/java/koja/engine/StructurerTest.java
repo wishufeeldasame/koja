@@ -166,4 +166,17 @@ class StructurerTest {
         assertEquals(List.of(Flag.SPEAKER_UNSURE), r.rows().rows().get(1).flags());
         assertTrue(llm.requests.get(0).messages().get(1).content().contains("?:"));
     }
+
+    @Test
+    void unassignedSpeakerGroupKeepsUnknownRoleAndEmptyInputSkipsLlm() throws Exception {
+        FakeLlm llm = new FakeLlm();
+        llm.analysis = "{\"videoType\":\"INTERVIEW_JA\",\"speakers\":[{\"id\":\"?\",\"role\":\"INTERPRETER\"}]}";
+        List<Unit> us = List.of(new Unit(1, 1, 0, 900, "ko", null, "답변", List.of(new Word(0, 900, "답변")), null));
+        assertEquals(SpeakerRole.UNKNOWN, Structurer.run(llm, us, null, f -> {}).rows().speakerRoles().get("?"));
+
+        FakeLlm none = new FakeLlm();
+        Structurer.Result r = Structurer.run(none, List.of(), null, f -> {});
+        assertEquals(List.of(), none.requests);
+        assertEquals(List.of(), r.rows().rows());
+    }
 }

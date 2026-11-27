@@ -79,4 +79,14 @@ class ClauseSplitterTest {
         List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 7_000, "S1"), new Turn(7_500, 9_500, "S2")));
         assertEquals(List.of("S2"), units.stream().map(Unit::speakerId).toList());
     }
+
+    @Test
+    void splitUnitSpeakerComesFromWordOverlapNotGaps() {
+        // 첫 절의 두 단어는 S1 턴과만 겹치고, 단어 사이 공백에는 S2 턴이 더 길게 있다.
+        SttSegment s = new SttSegment(1, 0, 9_000, "가 나. 다", "ko", "S3",
+                List.of(new Word(0, 300, " 가"), new Word(3_700, 4_000, " 나."), new Word(6_000, 6_500, " 다")), null);
+        List<Turn> turns = List.of(new Turn(0, 400, "S1"), new Turn(400, 3_600, "S2"), new Turn(3_600, 4_100, "S1"));
+        List<Unit> units = ClauseSplitter.split(List.of(s), turns);
+        assertEquals(java.util.Arrays.asList("S1", "S3"), units.stream().map(Unit::speakerId).toList());
+    }
 }

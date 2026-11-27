@@ -61,6 +61,9 @@ public final class Structurer {
      */
     public static Result run(LlmClient llm, List<Unit> units, VideoType fixedType, DoubleConsumer progress)
             throws IOException, InterruptedException {
+        if (units.isEmpty()) {
+            return empty(llm.name(), fixedType);
+        }
         int[] st = new int[4];
         Analysis a = analyze(llm, units);
         VideoType type = fixedType != null ? fixedType : a.type();
@@ -117,6 +120,12 @@ public final class Structurer {
         return new Result(result, new Stats(st[0], st[1], st[2], st[3]));
     }
 
+    /** 발언이 없는 영상. LLM을 부르지 않는다. */
+    public static Result empty(String engine, VideoType fixedType) {
+        return new Result(new RowsResult(StageStore.CURRENT_VERSION, engine, fixedType != null ? fixedType : VideoType.MIXED,
+                Map.of(), List.of(), List.of(), List.of()), new Stats(0, 0, 0, 0));
+    }
+
     record Analysis(VideoType type, Map<String, SpeakerRole> roles) {}
 
     /** 1단계. 두 번 다 틀리면 MIXED + 역할 미확정(모르면 비움, 절대 규칙 2). */
@@ -156,8 +165,12 @@ public final class Structurer {
                 roles.put(n.path("id").asString(), SpeakerRole.valueOf(n.path("role").asString()));
             }
             int count = root.path("speakers").size();
-            return count == speakers.size() && roles.keySet().equals(new HashSet<>(speakers))
-                    ? new Analysis(type, Map.copyOf(roles)) : null;
+            if (count != speakers.size() || !roles.keySet().equals(new HashSet<>(speakers))) {
+                return null;
+            }
+            // "?"는 한 사람이 아니라 화자 미배정 발언 묶음이라 역할을 정하지 않는다(절대 규칙 2).
+            roles.replace(StructuringPrompts.UNKNOWN_SPEAKER, SpeakerRole.UNKNOWN);
+            return new Analysis(type, Map.copyOf(roles));
         } catch (JacksonException | IllegalArgumentException e) {
             return null;
         }
