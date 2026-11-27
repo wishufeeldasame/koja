@@ -480,6 +480,8 @@ public final class ModelStore implements AutoCloseable {
                 byte[] buffer = new byte[BUFFER_SIZE];
                 while (true) {
                     checkCancelled(cancelToken);
+                    // 파일 열기·쓰기·진행 콜백 시간은 빼고 read()에서 막힌 시간만 재야 느린 디스크에서 오탐하지 않는다.
+                    lastActivityNanos.set(System.nanoTime());
                     int n = body.read(buffer);
                     lastActivityNanos.set(System.nanoTime());
                     if (stalled.get()) {

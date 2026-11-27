@@ -212,7 +212,7 @@ class ModelStoreTest {
         Path part = store.partPathOf(spec);
         assertTrue(Files.isRegularFile(part));
         long saved = Files.size(part);
-        assertTrue(saved > 0 && saved < payload.length);
+        assertTrue(saved > 0 && saved < payload.length, "saved=" + saved);
 
         Path completed = store.ensureDownloaded(spec);
         assertArrayEquals(payload, Files.readAllBytes(completed));
@@ -400,7 +400,7 @@ class ModelStoreTest {
             serveRange(ex, payload, true);
         });
 
-        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofMillis(300));
+        ModelStore store = new ModelStore(temp.resolve("models"), client, Duration.ofSeconds(2));
         ModelStore.ModelSpec spec = new ModelStore.ModelSpec(
                 "stall.bin", baseUri.resolve("/stall.bin"), payload.length, expectedSha);
 

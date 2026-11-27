@@ -59,6 +59,7 @@ PR마다 `Unreleased`에 한 줄씩 추가한다. 릴리스할 때 `Unreleased`�
 
 ### 수정
 - 로컬 서버(`whisper-server`·`llama-server`) 요청을 HTTP/1.1로 고정. JDK HttpClient 기본 HTTP/2의 `Upgrade: h2c` 헤더에 cpp-httplib가 응답하지 않아 윈도우에서 STT가 타임아웃까지 멈추던 문제(`LocalServer.newLoopbackHttpClient`)
+- 모델 다운로드 본문 수신 시간 초과가 파일 열기·쓰기 시간까지 세던 문제(윈도우 실기 `ModelStoreTest` 실패). read()에서 막힌 시간만 잰다
 
 ### 삭제
 - PoC의 선택 의존성 `torch`(qwen-asr, pyannote.audio)와 그 실행 경로(`stt.py` qwen/univa, `diar.py` pyannote). Dependabot 경고 49건(Pillow·transformers·accelerate)이 모두 여기서 나왔다(D-047)
