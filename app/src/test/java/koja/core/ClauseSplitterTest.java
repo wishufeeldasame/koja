@@ -110,4 +110,24 @@ class ClauseSplitterTest {
         assertEquals("질문", units.get(0).ko().text());
         assertEquals("답변 이어서", units.get(1).ko().text());
     }
+
+    @Test
+    void keepsSegmentWholeWhenWordsMissPartOfText() {
+        SttSegment s = new SttSegment(1, 0, 5_000, "처음. 중간. 마지막", "ko", null,
+                List.of(new Word(0, 500, "처음."), new Word(3_000, 3_500, " 마지막")), null);
+        List<Unit> units = ClauseSplitter.split(List.of(s), List.of());
+        assertEquals(List.of("처음. 중간. 마지막"), units.stream().map(Unit::text).toList());
+    }
+
+    @Test
+    void candidateBoundaryUsesLatestWordEndOfPreviousPiece() {
+        KoCandidate ko = new KoCandidate("가 나 다", List.of(new Word(0, 500, "가"), new Word(4_300, 4_600, " 나"),
+                new Word(5_600, 6_000, " 다")));
+        // 앞 조각 단어 끝 최댓값은 4.8초(마지막 단어는 1.8초에 끝남), 다음 조각은 5.5초 시작.
+        SttSegment s = new SttSegment(1, 0, 7_000, "あ い う", "ja", null,
+                List.of(new Word(0, 4_800, "あ"), new Word(1_000, 1_800, " い"), new Word(5_500, 6_500, " う")), ko);
+        List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 5_000, "S1"), new Turn(5_000, 7_000, "S2")));
+        assertEquals(2, units.size());
+        assertEquals("가 나", units.get(0).ko().text());
+    }
 }

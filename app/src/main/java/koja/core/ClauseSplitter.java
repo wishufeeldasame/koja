@@ -55,8 +55,9 @@ public final class ClauseSplitter {
         }
         List<Word> otherWords = useKo ? s.words() : ko == null ? List.of() : ko.words();
         String otherText = useKo ? s.text() : ko == null ? "" : ko.text();
-        // 다른 쪽 원문에 단어 시각이 없으면 나눌 때 그 원문이 사라진다(절대 규칙 1).
-        if (ko != null && !otherText.isBlank() && otherWords.isEmpty()) {
+        // 나눈 단위의 텍스트는 단어를 이은 것이라, 단어가 원문을 다 담지 않으면 나눌 때 원문 일부가 사라진다(절대 규칙 1, D-032).
+        String sideText = useKo ? ko.text() : s.text();
+        if (!covers(side, sideText) || (ko != null && !covers(otherWords, otherText))) {
             return List.of(whole);
         }
         List<List<Word>> bins = new ArrayList<>();
@@ -68,7 +69,8 @@ public final class ClauseSplitter {
             for (int i = 1; i < pieces.size(); i++) {
                 // 경계는 두 조각 사이 공백의 가운데다. 다음 조각 첫 단어 시각을 쓰면 그보다 먼저 시작한 다음 화자의 후보 단어가
                 // 앞 조각(예: 질문)으로 가서 답변 첫 단어가 빠진다.
-                long boundary = (pieces.get(i - 1).getLast().endMs() + pieces.get(i).getFirst().startMs()) / 2;
+                long prevEnd = pieces.get(i - 1).stream().mapToLong(Word::endMs).max().orElse(0);
+                long boundary = (prevEnd + pieces.get(i).getFirst().startMs()) / 2;
                 if (w.startMs() >= boundary) {
                     bin = i;
                 }
@@ -181,6 +183,11 @@ public final class ClauseSplitter {
             }
         }
         return who;
+    }
+
+    /** 공백을 빼고 보면 단어를 이은 것이 원문과 같은지. */
+    private static boolean covers(List<Word> words, String text) {
+        return join(words).replaceAll("\\s", "").equals(text.replaceAll("\\s", ""));
     }
 
     static String join(List<Word> words) {

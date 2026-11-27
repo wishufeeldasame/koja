@@ -27,6 +27,7 @@ public final class StructuredRows {
     static final int MAX_MERGE_TOTAL_HANGUL = 32;
     static final long MAX_MERGE_CUR_MS = 4_500;
     private static final String KOREAN = "ko";
+    private static final String JAPANESE = "ja";
 
     /** 청크 하나의 결과. rows는 단위 id 순, 행 id는 아직 없다. */
     public record Chunk(List<UnitRow> rows, List<Integer> ignored) {}
@@ -81,11 +82,11 @@ public final class StructuredRows {
     }
 
     /**
-     * 한국어 단위에는 일본어 원문이 없어 질문 영역에 쓰면 한국어가 시간 없이 일본어 칸에 들어간다. 거부하면 E4B가 재시도에서
+     * 일본어가 아닌 단위는 질문 영역에 쓰면 일본어가 아닌 원문이 시간 없이 일본어 칸에 들어간다. 거부하면 E4B가 재시도에서
      * 못 고쳐 대체 청크가 늘었다(맥 실측). 빠뜨리지 않도록 LINE으로 남겨 검수에 맡긴다(D-032).
      */
     static Action effective(Action action, Unit u) {
-        return (action == Action.QUESTION_JA || action == Action.BOTH_JA_LINE) && KOREAN.equals(u.lang()) ? Action.LINE : action;
+        return (action == Action.QUESTION_JA || action == Action.BOTH_JA_LINE) && !JAPANESE.equals(u.lang()) ? Action.LINE : action;
     }
 
     /** 검증을 끝내 통과하지 못한 청크는 단위마다 LINE 한 행으로 남긴다(빠뜨리지 않기, D-032). */

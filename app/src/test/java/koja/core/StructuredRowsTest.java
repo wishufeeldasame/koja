@@ -141,7 +141,7 @@ class StructuredRowsTest {
 
     @Test
     void japaneseQuestionOnKoreanUnitStaysAsLine() {
-        Map<Integer, Unit> units = map(unit(1, 1, 0, "S1", "ko", "한국어 질문", null), unit(2, 2, 1_000, "S1", "ko", "답변", null));
+        Map<Integer, Unit> units = map(unit(1, 1, 0, "S1", "ko", "한국어 질문", null), unit(2, 2, 1_000, "S1", "en", "answer", "답변"));
         Chunk out = StructuredRows.toRows(List.of(item(1, Action.QUESTION_JA, true), item(2, Action.BOTH_JA_LINE, true)), units);
         assertEquals(List.of(row(RowKind.LINE, List.of(), 1), row(RowKind.LINE, List.of(), 2)), out.rows());
     }
