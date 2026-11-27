@@ -185,8 +185,10 @@ public final class StructuredRows {
                 continue;
             }
             Unit first = us.getFirst();
-            List<Word> words = koWords(first);
-            long start = words.isEmpty() ? first.startMs() : words.getFirst().startMs();
+            // 행 시간은 한국어 칸에 실제로 보이는 첫 단어 시각이다. 후보 없는 비한국어 단위가 앞에 붙어도 그 시각을 쓰지 않는다.
+            Unit shown = us.stream().filter(u -> !koText(u).isBlank()).findFirst().orElse(first);
+            List<Word> words = koWords(shown);
+            long start = words.isEmpty() ? shown.startMs() : words.getFirst().startMs();
             List<Flag> flags = r.flags();
             if (first.speakerId() == null || !confirmed.contains(first.speakerId())) {
                 flags = union(List.of(Flag.SPEAKER_UNSURE), flags);

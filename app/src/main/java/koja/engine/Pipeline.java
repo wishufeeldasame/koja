@@ -133,16 +133,18 @@ public final class Pipeline {
         project = withSpeakers(project, sttResult, diarResult, newDiar);
         if (newDiar || !done(project, ROWS, projectFile)) {
             project = llm == null ? withRows(withStage(project, ROWS, ROWS_ENGINE))
-                    : structure(project, diarResult, llm, dir.resolve(ProjectFiles.ROWS), listener);
+                    : structure(project, projectFile, diarResult, llm, dir.resolve(ProjectFiles.ROWS), listener);
         }
         ProjectStore.save(project, projectFile);
         return project;
     }
 
     /** 5단계: 단위 분할(D-054) → LLM 구조화 → rows.json → project.json 행·무시 목록 투영(D-073). */
-    private static Project structure(Project p, DiarResult diar, Opener<? extends LlmClient> llm, Path rowsFile,
-            Listener listener) throws IOException, InterruptedException {
+    private static Project structure(Project p, Path projectFile, DiarResult diar, Opener<? extends LlmClient> llm,
+            Path rowsFile, Listener listener) throws IOException, InterruptedException {
         checkInterrupt();
+        // 구조화는 몇 분 걸린다. 여기서 멈춰도 다음 실행이 화자 구분을 다시 하지 않게 화자표·완료 표시를 먼저 저장한다.
+        ProjectStore.save(p, projectFile);
         Map<String, String> ids = speakerIds(diar.turns());
         List<Turn> turns = diar.turns().stream().map(t -> new Turn(t.startMs(), t.endMs(), ids.get(t.speaker()))).toList();
         List<StageStore.Unit> units = ClauseSplitter.split(p.sttSegments(), turns);
@@ -155,7 +157,8 @@ public final class Pipeline {
         StageStore.saveRows(rows, rowsFile);
         StructuredRows.Projection out = StructuredRows.project(rows.rows(), rows.ignoredUnitIds(), rows.units(), p.speakers());
         Project q = withStage(p, ROWS, rows.engine());
-        return new Project(q.version(), q.source(), q.meta(), rows.videoType(), q.speakers(), q.sttSegments(), out.rows(),
+        // 자동 판별 유형은 rows.json에만 둔다. project.json videoType은 사용자가 지정한 값이라 다음 실행에서도 고정한다.
+        return new Project(q.version(), q.source(), q.meta(), q.videoType(), q.speakers(), q.sttSegments(), out.rows(),
                 out.ignoredSegIds(), q.glossary(), q.stages());
     }
 

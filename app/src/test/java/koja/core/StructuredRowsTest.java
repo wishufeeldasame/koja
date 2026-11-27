@@ -129,4 +129,13 @@ class StructuredRowsTest {
                 List.of(new UnitRow("r1", RowKind.LINE, List.of(1), List.of(Flag.TEXT_UNSURE))), List.of(), units, List.of());
         assertEquals("", p.rows().getFirst().ko());
     }
+
+    @Test
+    void koreanRowStartsAtFirstShownKoreanWord() {
+        List<Unit> units = List.of(unit(1, 1, 0, "S1", "en", "um", null), unit(2, 1, 1_000, "S1", "ko", "답변", null));
+        StructuredRows.Projection p = StructuredRows.project(
+                List.of(new UnitRow("r1", RowKind.LINE, List.of(1, 2), List.of())), List.of(), units, List.of());
+        assertEquals(1_100L, p.rows().getFirst().startMs());
+        assertEquals("답변", p.rows().getFirst().ko());
+    }
 }

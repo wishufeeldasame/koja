@@ -71,4 +71,12 @@ class ClauseSplitterTest {
         assertEquals(1_000, first.startMs());
         assertEquals(2_000, first.endMs());
     }
+
+    @Test
+    void unsplitSegmentKeepsParentSpeakerFromWordSpans() {
+        // 단어는 S2 턴에만 겹치지만 VAD 구간 전체로는 S1 턴이 더 길다. 파이프라인이 붙인 S2를 유지한다.
+        SttSegment s = new SttSegment(1, 0, 10_000, "가나", "ko", "S2", List.of(new Word(8_000, 9_000, " 가나")), null);
+        List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 7_000, "S1"), new Turn(7_500, 9_500, "S2")));
+        assertEquals(List.of("S2"), units.stream().map(Unit::speakerId).toList());
+    }
 }

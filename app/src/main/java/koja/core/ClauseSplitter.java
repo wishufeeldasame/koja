@@ -11,8 +11,8 @@ import koja.core.StageStore.Unit;
 
 /**
  * 5단계 구조화 입력 단위(D-054 `clause`): STT 구간을 1차 언어 기준 문장 끝·화자 전환·한국어 절 경계에서 단어 단위로 나눈다.
- * 텍스트와 시간은 STT 단어를 나눈 것뿐이다(절대 규칙 1). 화자는 diar.json 턴을 단위 시각에 직접 맞추고(D-064),
- * 안 맞으면 부모 구간 화자, 그것도 없으면 null.
+ * 텍스트와 시간은 STT 단어를 나눈 것뿐이다(절대 규칙 1). 나뉜 단위의 화자는 diar.json 턴을 단위 시각에 직접 맞추고(D-064),
+ * 안 맞거나 나뉘지 않은 구간이면 부모 구간 화자, 그것도 없으면 null.
  */
 public final class ClauseSplitter {
     static final Pattern END = Pattern.compile("[.?!。？！]$");
@@ -29,8 +29,10 @@ public final class ClauseSplitter {
     public static List<Unit> split(List<SttSegment> segments, List<Turn> turns) {
         List<Unit> units = new ArrayList<>();
         for (SttSegment s : segments) {
-            for (Unit u : splitSegment(s, turns)) {
-                String speaker = speakerOf(u.startMs(), u.endMs(), turns);
+            List<Unit> pieces = splitSegment(s, turns);
+            for (Unit u : pieces) {
+                // 나누지 않은 구간은 파이프라인이 단어 구간으로 붙인 화자를 쓴다. VAD 구간 전체로 다시 재면 단어 밖 턴이 이긴다(D-064).
+                String speaker = pieces.size() == 1 ? null : speakerOf(u.startMs(), u.endMs(), turns);
                 units.add(new Unit(units.size() + 1, s.id(), u.startMs(), u.endMs(), u.lang(),
                         speaker != null ? speaker : s.speakerId(), u.text(), u.words(), u.ko()));
             }
