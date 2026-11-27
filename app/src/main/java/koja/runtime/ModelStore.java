@@ -446,6 +446,8 @@ public final class ModelStore implements AutoCloseable {
             CancelToken cancelToken) throws IOException {
         AtomicBoolean stalled = new AtomicBoolean();
         AtomicBoolean reading = new AtomicBoolean(true);
+        // 파일 열기·쓰기·진행 콜백 시간은 빼고 read()에서 막힌 시간만 재야 느린 디스크에서 오탐하지 않는다.
+        AtomicBoolean inRead = new AtomicBoolean();
         AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
         long timeoutNanos = readTimeout.toNanos();
         long checkMillis = Math.max(10L, Math.min(1_000L, readTimeout.toMillis() / 4));
@@ -454,7 +456,7 @@ public final class ModelStore implements AutoCloseable {
                 .name("koja-download-watchdog")
                 .start(() -> {
                     while (reading.get()) {
-                        if (System.nanoTime() - lastActivityNanos.get() >= timeoutNanos) {
+                        if (inRead.get() && System.nanoTime() - lastActivityNanos.get() >= timeoutNanos) {
                             stalled.set(true);
                             closeQuietly(body);
                             return;
@@ -480,10 +482,10 @@ public final class ModelStore implements AutoCloseable {
                 byte[] buffer = new byte[BUFFER_SIZE];
                 while (true) {
                     checkCancelled(cancelToken);
-                    // 파일 열기·쓰기·진행 콜백 시간은 빼고 read()에서 막힌 시간만 재야 느린 디스크에서 오탐하지 않는다.
                     lastActivityNanos.set(System.nanoTime());
+                    inRead.set(true);
                     int n = body.read(buffer);
-                    lastActivityNanos.set(System.nanoTime());
+                    inRead.set(false);
                     if (stalled.get()) {
                         throw new IOException("모델 다운로드 본문 수신 시간 초과(" + readTimeout + "): " + spec.relativePath());
                     }
