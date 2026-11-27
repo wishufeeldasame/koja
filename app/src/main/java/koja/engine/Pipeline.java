@@ -168,6 +168,11 @@ public final class Pipeline {
             }
         }
         checkInterrupt();
+        // 새 rows.json을 쓰기 전에 옛 완료 표시를 지워 둔다. 저장 사이에 멈추면 옛 행이 새 단계 파일을 가리킨 채 완료로 남는다(D-071).
+        if (p.stages() != null && p.stages().containsKey(ROWS)) {
+            p = withoutStages(p, ROWS);
+            ProjectStore.save(p, projectFile);
+        }
         StageStore.saveRows(rows, rowsFile);
         StructuredRows.Projection out = StructuredRows.project(rows.rows(), rows.ignoredUnitIds(), rows.units(), p.speakers());
         Project q = withStage(p, ROWS, rows.engine());

@@ -51,11 +51,12 @@ public final class StructuredRows {
                     ko = null;
                     ja = null;
                 }
+                // 화자 미배정(null)은 한 사람이 아니라 묶음이라 이어 붙이지 않는다.
                 case LINE, QUESTION_KO -> {
                     ja = null;
                     RowKind kind = RowKind.valueOf(effective(it.action(), u).name());
                     List<Flag> fl = union(it.flags(), autoFlags(u));
-                    if (ko != null && !it.newRow() && ko.kind == kind && same(ko.speaker, u.speakerId())
+                    if (ko != null && !it.newRow() && ko.kind == kind && ko.speaker != null && ko.speaker.equals(u.speakerId())
                             && canMerge(ko, u, units)) {
                         ko.add(it.id(), fl);
                     } else {
@@ -158,10 +159,6 @@ public final class StructuredRows {
 
     private static List<Word> koWords(Unit u) {
         return KOREAN.equals(u.lang()) || u.ko() == null ? u.words() : u.ko().words();
-    }
-
-    private static boolean same(String a, String b) {
-        return a == null ? b == null : a.equals(b);
     }
 
     private static List<Flag> union(List<Flag> a, List<Flag> b) {

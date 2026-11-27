@@ -130,4 +130,13 @@ class ClauseSplitterTest {
         assertEquals(2, units.size());
         assertEquals("가 나", units.get(0).ko().text());
     }
+
+    @Test
+    void keepsSegmentWholeWhenCandidateOrderWouldFlip() {
+        KoCandidate ko = new KoCandidate("처음 다음", List.of(new Word(5_000, 5_400, "처음"), new Word(100, 400, " 다음")));
+        SttSegment s = new SttSegment(1, 0, 7_000, "あ う", "ja", null,
+                List.of(new Word(0, 1_800, "あ"), new Word(4_000, 6_000, " う")), ko);
+        List<Unit> units = ClauseSplitter.split(List.of(s), List.of(new Turn(0, 2_000, "S1"), new Turn(3_000, 7_000, "S2")));
+        assertEquals(1, units.size());
+    }
 }

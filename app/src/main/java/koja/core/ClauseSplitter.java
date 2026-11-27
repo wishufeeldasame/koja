@@ -64,6 +64,7 @@ public final class ClauseSplitter {
         for (int i = 0; i < pieces.size(); i++) {
             bins.add(new ArrayList<>());
         }
+        int lastBin = 0;
         for (Word w : otherWords) {
             int bin = 0;
             for (int i = 1; i < pieces.size(); i++) {
@@ -75,6 +76,11 @@ public final class ClauseSplitter {
                     bin = i;
                 }
             }
+            // 후보 단어 시각이 경계에서 역전되면 나눈 뒤 원문 순서가 바뀐다(절대 규칙 1). 그 구간은 나누지 않는다.
+            if (bin < lastBin) {
+                return List.of(whole);
+            }
+            lastBin = bin;
             bins.get(bin).add(w);
         }
         List<Unit> out = new ArrayList<>(pieces.size());

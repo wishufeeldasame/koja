@@ -140,7 +140,23 @@ public final class StructuringValidator {
                 dual.add(u.id());
             }
         }
-        return checkRows(rows, ignored, ids, dual, type);
+        String error = checkRows(rows, ignored, ids, dual, type);
+        if (error != null) {
+            return error;
+        }
+        // 질문 영역에는 일본어 원문이 들어간다. 변환(StructuredRows.effective)이 막지만 단계 파일은 따로 믿지 않는다.
+        Set<Integer> japanese = new HashSet<>();
+        for (Unit u : units) {
+            if ("ja".equals(u.lang())) {
+                japanese.add(u.id());
+            }
+        }
+        for (UnitRow r : rows) {
+            if (r.kind() == RowKind.QUESTION_JA && !japanese.containsAll(r.unitIds())) {
+                return "QUESTION_JA 행에 일본어가 아닌 구간이 있습니다: " + r.unitIds();
+            }
+        }
+        return null;
     }
 
     /** 청크 검증에도 쓴다. ids는 이번에 처리할 단위 id, dual은 그중 한국어 후보가 있는 id. */

@@ -145,4 +145,11 @@ class StructuredRowsTest {
         Chunk out = StructuredRows.toRows(List.of(item(1, Action.QUESTION_JA, true), item(2, Action.BOTH_JA_LINE, true)), units);
         assertEquals(List.of(row(RowKind.LINE, List.of(), 1), row(RowKind.LINE, List.of(), 2)), out.rows());
     }
+
+    @Test
+    void unassignedSpeakersAreNotMerged() {
+        Map<Integer, Unit> units = map(unit(1, 1, 0, null, "ko", "앞", null), unit(2, 1, 1_000, null, "ko", "뒤", null));
+        assertEquals(2, StructuredRows.toRows(List.of(item(1, Action.LINE, true), item(2, Action.LINE, false)), units)
+                .rows().size());
+    }
 }

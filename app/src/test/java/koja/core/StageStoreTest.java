@@ -112,6 +112,8 @@ class StageStoreTest {
         String before = Files.readString(file);
         assertThrows(IOException.class, () -> StageStore.saveRows(rows(ROWS, List.of()), file));
         assertThrows(IOException.class, () -> StageStore.saveRows(rows(ROWS, List.of(2, 3)), file));
+        assertThrows(IOException.class, () -> StageStore.saveRows(rows(List.of(new UnitRow("r1", RowKind.QUESTION_JA,
+                List.of(1), List.of()), ROWS.get(1), ROWS.get(2)), List.of(3)), file));
         assertThrows(IOException.class, () -> StageStore.saveRows(rows(List.of(ROWS.get(0), ROWS.get(1),
                 new UnitRow("r1", RowKind.LINE, List.of(2), List.of())), List.of(3)), file));
         assertEquals(before, Files.readString(file));
