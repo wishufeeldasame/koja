@@ -144,6 +144,65 @@ class LocalServerTest {
     }
 
     @Test
+    void loopbackHttpClientSendsPlainHttp11WithoutH2cUpgrade() throws Exception {
+        try (java.net.ServerSocket listener = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"));
+                java.net.http.HttpClient client = LocalServer.newLoopbackHttpClient(Duration.ofSeconds(2))) {
+            listener.setSoTimeout(5000);
+            java.net.URI uri = java.net.URI.create("http://127.0.0.1:" + listener.getLocalPort() + "/inference");
+            List<HttpRequest> requests = List.of(
+                    HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(5)).GET().build(),
+                    HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(5))
+                            .POST(HttpRequest.BodyPublishers.ofString("{\"a\":1}")).build());
+            for (HttpRequest request : requests) {
+                java.util.concurrent.CompletableFuture<HttpResponse<String>> pending =
+                        client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+                List<String> head;
+                try (java.net.Socket socket = listener.accept()) {
+                    socket.setSoTimeout(5000);
+                    head = readRequestHead(socket.getInputStream());
+                    socket.getOutputStream().write(
+                            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                    .getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().flush();
+                }
+                assertEquals(200, pending.get(5, java.util.concurrent.TimeUnit.SECONDS).statusCode());
+                assertTrue(head.get(0).endsWith(" HTTP/1.1"), head.get(0));
+                for (String line : head) {
+                    String lower = line.toLowerCase(java.util.Locale.ROOT);
+                    assertFalse(lower.startsWith("upgrade:"), line);
+                    assertFalse(lower.startsWith("http2-settings:"), line);
+                    assertFalse(lower.startsWith("connection:") && lower.contains("upgrade"), line);
+                }
+            }
+        }
+    }
+
+    /** 요청 줄과 헤더를 읽고, Content-Length만큼 본문도 비워 클라이언트 전송이 막히지 않게 한다. */
+    private static List<String> readRequestHead(java.io.InputStream in) throws IOException {
+        List<String> lines = new java.util.ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        int c;
+        while ((c = in.read()) >= 0) {
+            if (c == '\n') {
+                String text = line.toString().strip();
+                line.setLength(0);
+                if (text.isEmpty()) {
+                    break;
+                }
+                lines.add(text);
+            } else {
+                line.append((char) c);
+            }
+        }
+        for (String header : lines) {
+            if (header.toLowerCase(java.util.Locale.ROOT).startsWith("content-length:")) {
+                in.readNBytes(Integer.parseInt(header.substring("content-length:".length()).trim()));
+            }
+        }
+        return lines;
+    }
+
+    @Test
     void startsWithChildBoundPortFromLog() throws Exception {
         LocalServer server = LocalServer.builder("ephemeral-test", port -> fakeServerCmd("llama-health", port))
                 .portFromLog(line -> {
